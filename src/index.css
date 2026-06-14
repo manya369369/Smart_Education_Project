@@ -1,0 +1,12 @@
+/* Standard Reset and Base Styles */
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: #020617;
+  overflow-x: hidden;
+}
