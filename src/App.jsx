@@ -2,6 +2,8 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import WelcomePage from './pages/WelcomePage';
 import GoalSetupPage from './pages/GoalSetupPage';
+import LearningModeSubjectPage from './pages/LearningModeSubjectPage';
+import RoadmapPage from './pages/RoadmapPage';
 import AssessmentPage from './pages/AssessmentPage';
 import LearnerProfilePage from './pages/LearnerProfilePage';
 import DashboardPage from './pages/DashboardPage';
@@ -20,6 +22,8 @@ function App() {
         <Routes>
           <Route path="/" element={<WelcomePage />} />
           <Route path="/goal-setup" element={<GoalSetupPage />} />
+          <Route path="/learning-mode-setup" element={<LearningModeSubjectPage />} />
+          <Route path="/roadmap" element={<RoadmapPage />} />
           <Route path="/assessment" element={<AssessmentPage />} />
           <Route path="/profile" element={<LearnerProfilePage />} />
           <Route path="/learner-profile" element={<LearnerProfilePage />} />

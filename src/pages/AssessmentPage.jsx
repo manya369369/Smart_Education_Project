@@ -759,7 +759,7 @@ const AssessmentPage = () => {
       if (timerFinished && apiFinished) {
         if (fetchError || !fetchedQuestions) {
           setUsingFallback(true);
-          setFallbackReason(fetchError ? fetchError.message : "Invalid questions format received");
+          setFallbackReason("AI fallback active");
 
           const pool = generateDynamicFallbackQuestions(selectedSubject);
           const idNormalized = normalizeQuestionIds(pool);
@@ -772,7 +772,7 @@ const AssessmentPage = () => {
             subjects: currentSubjects,
             questions: idNormalized,
             usingFallback: true,
-            fallbackReason: fetchError ? fetchError.message : "Invalid questions format received"
+            fallbackReason: "AI fallback active"
           };
           localStorage.setItem('neurolearn_generated_questions', JSON.stringify(cacheData));
         } else {
@@ -870,6 +870,10 @@ const AssessmentPage = () => {
 
       if (!questionsList || !Array.isArray(questionsList) || questionsList.length === 0) {
         throw new Error("Invalid questions format received");
+      }
+
+      if (data && data.source === 'fallback') {
+        throw new Error("AI fallback active");
       }
 
       fetchedQuestions = questionsList.map((q, idx) => ({
@@ -1186,12 +1190,7 @@ const AssessmentPage = () => {
         {/* Fallback warning message when API fails */}
         {usingFallback && (
           <div className="fallback-warning-banner" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span>⚠️ AI generation failed. Using demo questions for now.</span>
-            {fallbackReason && (
-              <small style={{ display: 'block', opacity: 0.9, fontSize: '0.85em', marginTop: '4px' }}>
-                Reason: {fallbackReason}
-              </small>
-            )}
+            <span>⚠️ AI fallback active</span>
           </div>
         )}
 

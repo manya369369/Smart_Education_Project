@@ -60,7 +60,12 @@ const WelcomePage = () => {
   return (
     <div className="welcome-wrapper">
       {isLoading ? (
-        <div className="loading-container">
+        <div className="loading-container" style={{ flexDirection: 'column', gap: '2rem' }}>
+          <div className="loading-spinner">
+            <div className="spinner-outer"></div>
+            <div className="spinner-inner"></div>
+            <div className="spinner-glow"></div>
+          </div>
           <div className={`loading-text ${fadeClass}`}>
             {loadingText}
           </div>

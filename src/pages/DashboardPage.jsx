@@ -275,27 +275,6 @@ const DashboardPage = () => {
     navigate('/study-plan');
   };
 
-  const handleResetDemoData = () => {
-    const confirmed = window.confirm("Are you sure you want to reset all demo learning data? This will clear your assessment, study plan, quizzes, and chat history.");
-    if (confirmed) {
-      const keysToClear = [
-        'neurolearn_assessment_result',
-        'neurolearn_learner_profile',
-        'neurolearn_study_plan',
-        'neurolearn_current_learning_task',
-        'neurolearn_quiz_result',
-        'neurolearn_tomorrow_plan',
-        'neurolearn_tutor_chat',
-        'neurolearn_ai_notes',
-        'neurolearn_video_script',
-        'neurolearn_adaptive_quiz',
-        'neurolearn_generated_questions'
-      ];
-      keysToClear.forEach(key => localStorage.removeItem(key));
-      alert("Demo data successfully reset. Redirecting to goal setup...");
-      navigate('/goal-setup');
-    }
-  };
 
   // Render Page Loading State
   if (isLoading) {
@@ -344,36 +323,9 @@ const DashboardPage = () => {
         
         {/* PAGE HEADER */}
         <header className="dashboard-header animate-slideUp">
-          <div className="header-title-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h1 className="header-title">Welcome Back, {studentName}</h1>
-              <p className="header-subtitle">Your personalized AI learning dashboard is ready.</p>
-            </div>
-            <button 
-              onClick={handleResetDemoData}
-              className="reset-demo-btn"
-              style={{
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                color: '#ef4444',
-                padding: '8px 16px',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'rgba(239, 68, 68, 0.2)';
-                e.target.style.borderColor = '#ef4444';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'rgba(239, 68, 68, 0.1)';
-                e.target.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-              }}
-            >
-              Reset Demo Data
-            </button>
+          <div className="header-title-container">
+            <h1 className="header-title">Welcome Back, {studentName}</h1>
+            <p className="header-subtitle">Your personalized AI learning dashboard is ready.</p>
           </div>
           <div className="header-meta-grid">
             <div className="meta-badge-card">

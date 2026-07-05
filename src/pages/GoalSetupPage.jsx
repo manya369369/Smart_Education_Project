@@ -9,14 +9,17 @@ const GoalSetupPage = () => {
   const [formData, setFormData] = useState(() => {
     try {
       const saved = localStorage.getItem('neurolearn_goal_data');
+      const savedStudentType = localStorage.getItem('neurolearn_student_type') || '';
+      const savedClassOrSemester = localStorage.getItem('neurolearn_student_class_or_semester') || '';
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
           name: parsed.name || '',
           examGoal: parsed.examGoal || '',
-          subjects: parsed.subjects || [],
           examDate: parsed.examDate || '',
-          studyTime: parsed.studyTime || ''
+          studyTime: parsed.studyTime || '',
+          studentType: savedStudentType || parsed.studentType || '',
+          classOrSemester: savedClassOrSemester || parsed.classOrSemester || ''
         };
       }
     } catch (e) {
@@ -25,148 +28,75 @@ const GoalSetupPage = () => {
     return {
       name: '',
       examGoal: '',
-      subjects: [],
       examDate: '',
-      studyTime: ''
+      studyTime: '',
+      studentType: '',
+      classOrSemester: ''
     };
   });
 
   const [errorMessage, setErrorMessage] = useState('');
-  const [customSubjectText, setCustomSubjectText] = useState('');
-  
-  // Track custom subjects loaded or added
-  const [customSubjects, setCustomSubjects] = useState(() => {
-    try {
-      const saved = localStorage.getItem('neurolearn_goal_data');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const savedSubjects = parsed.subjects || [];
-        const predefined = ['Data Structures', 'DBMS', 'Operating System', 'Mathematics', 'Physics', 'Chemistry'];
-        return savedSubjects.filter(sub => !predefined.includes(sub));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return [];
-  });
-
-  const subjectOptions = [
-    'Data Structures',
-    'DBMS',
-    'Operating System',
-    'Mathematics',
-    'Physics',
-    'Chemistry'
-  ];
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubjectToggle = (subject) => {
     setFormData(prev => {
-      const isSelected = prev.subjects.includes(subject);
-      const updatedSubjects = isSelected
-        ? prev.subjects.filter(s => s !== subject)
-        : [...prev.subjects, subject];
-      return { ...prev, subjects: updatedSubjects };
+      const updated = { ...prev, [name]: value };
+      if (name === 'studentType') {
+        updated.classOrSemester = ''; // Reset when type changes
+      }
+      return updated;
     });
-  };
-
-  const handleAddCustomSubject = () => {
-    const trimmed = customSubjectText.trim();
-    if (!trimmed) return;
-
-    const allSelected = formData.subjects;
-    if (allSelected.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
-      setErrorMessage('Subject is already selected.');
-      return;
-    }
-
-    setCustomSubjects(prev => [...prev, trimmed]);
-    setFormData(prev => ({
-      ...prev,
-      subjects: [...prev.subjects, trimmed]
-    }));
-    setCustomSubjectText('');
-    setErrorMessage('');
-  };
-
-  const handleRemoveCustomSubject = (subject) => {
-    setCustomSubjects(prev => prev.filter(s => s !== subject));
-    setFormData(prev => ({
-      ...prev,
-      subjects: prev.subjects.filter(s => s !== subject)
-    }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setErrorMessage('');
 
-    const { name, examGoal, subjects, examDate, studyTime } = formData;
+    const { name, examGoal, examDate, studyTime, studentType, classOrSemester } = formData;
 
     // Check if any required field is empty
-    if (!name.trim() || !examGoal || !examDate || !studyTime) {
+    if (!name.trim() || !examGoal || !examDate || !studyTime || !studentType || !classOrSemester) {
       setErrorMessage('Please complete all required fields before continuing.');
       return;
     }
 
-    // Check if at least one subject is chosen
-    if (subjects.length === 0) {
-      setErrorMessage('Please select at least one subject.');
-      return;
-    }
-
-    // Reset stale data if subjects changed
+    // Reset stale data
     try {
-      const saved = localStorage.getItem('neurolearn_goal_data');
-      let subjectsChanged = false;
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const prevSubjects = parsed.subjects || [];
-        // Compare lists
-        if (prevSubjects.length !== subjects.length || !prevSubjects.every(s => subjects.includes(s))) {
-          subjectsChanged = true;
-        }
-      } else {
-        subjectsChanged = true;
-      }
-
-      if (subjectsChanged) {
-        console.log("[GoalSetupPage] Subjects changed. Clearing stale learning data...");
-        const keysToClear = [
-          'neurolearn_generated_questions',
-          'neurolearn_assessment_result',
-          'neurolearn_learner_profile',
-          'neurolearn_study_plan',
-          'neurolearn_current_learning_task',
-          'neurolearn_quiz_result',
-          'neurolearn_tomorrow_plan'
-        ];
-        keysToClear.forEach(key => localStorage.removeItem(key));
-      }
+      const keysToClear = [
+        'neurolearn_setup_data',
+        'neurolearn_generated_questions',
+        'neurolearn_assessment_result',
+        'neurolearn_learner_profile',
+        'neurolearn_study_plan',
+        'neurolearn_current_learning_task',
+        'neurolearn_quiz_result',
+        'neurolearn_tomorrow_plan',
+        'roadmaps'
+      ];
+      keysToClear.forEach(key => localStorage.removeItem(key));
     } catch (err) {
       console.error("Error clearing stale data", err);
     }
 
     // Save valid data in localStorage
     try {
+      localStorage.setItem('neurolearn_student_type', studentType);
+      localStorage.setItem('neurolearn_student_class_or_semester', classOrSemester);
       localStorage.setItem('neurolearn_goal_data', JSON.stringify({
         name: name.trim(),
         examGoal,
-        subjects,
         examDate,
-        studyTime
+        studyTime,
+        studentType,
+        classOrSemester
       }));
       console.log("Goal data saved");
     } catch (e) {
       console.error("Error writing to localStorage", e);
     }
 
-    // Navigate to /assessment
-    navigate('/assessment');
+    // Navigate to /learning-mode-setup
+    navigate('/learning-mode-setup');
   };
 
   const handleBack = () => {
@@ -236,72 +166,111 @@ const GoalSetupPage = () => {
             </select>
           </div>
 
-          {/* 3. Subjects (Checkbox cards) */}
+          {/* 3. Student Type (School vs College) */}
           <div className="form-group">
-            <span className="form-label">Choose your subjects</span>
-            <div className="subjects-grid">
-              {subjectOptions.map((subject) => {
-                const isSelected = formData.subjects.includes(subject);
-                return (
-                  <label
-                    key={subject}
-                    className={`subject-card ${isSelected ? 'selected' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleSubjectToggle(subject)}
-                      className="subject-checkbox"
-                    />
-                    <span className="custom-checkbox-indicator"></span>
-                    <span className="subject-card-label">{subject}</span>
-                  </label>
-                );
-              })}
+            <span className="form-label">I am a</span>
+            <div className="student-type-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.25rem' }}>
+              <label className={`subject-card ${formData.studentType === 'School Student' ? 'selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <input
+                  type="radio"
+                  name="studentType"
+                  value="School Student"
+                  checked={formData.studentType === 'School Student'}
+                  onChange={handleInputChange}
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                />
+                <span className="custom-radio-indicator" style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  background: formData.studentType === 'School Student' ? '#6366f1' : 'transparent',
+                  borderColor: formData.studentType === 'School Student' ? '#6366f1' : 'rgba(255, 255, 255, 0.3)'
+                }}>
+                  {formData.studentType === 'School Student' && (
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'white' }}></span>
+                  )}
+                </span>
+                <span className="subject-card-label">School Student</span>
+              </label>
 
-              {/* Custom subjects displayed as active card with delete action */}
-              {customSubjects.map((subject) => (
-                <div
-                  key={subject}
-                  className="subject-card selected custom-subject-card"
-                >
-                  <span className="subject-card-label">{subject}</span>
-                  <button
-                    type="button"
-                    className="remove-subject-btn"
-                    onClick={() => handleRemoveCustomSubject(subject)}
-                    title="Remove custom subject"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              <label className={`subject-card ${formData.studentType === 'College Student' ? 'selected' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <input
+                  type="radio"
+                  name="studentType"
+                  value="College Student"
+                  checked={formData.studentType === 'College Student'}
+                  onChange={handleInputChange}
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                />
+                <span className="custom-radio-indicator" style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  background: formData.studentType === 'College Student' ? '#6366f1' : 'transparent',
+                  borderColor: formData.studentType === 'College Student' ? '#6366f1' : 'rgba(255, 255, 255, 0.3)'
+                }}>
+                  {formData.studentType === 'College Student' && (
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'white' }}></span>
+                  )}
+                </span>
+                <span className="subject-card-label">College Student</span>
+              </label>
             </div>
           </div>
 
-          {/* Add custom subjects input */}
-          <div className="form-group">
-            <label htmlFor="custom-subject-input" className="form-label">
-              Add Your Own Subject
-            </label>
-            <div className="custom-subject-input-group">
-              <input
-                id="custom-subject-input"
-                type="text"
-                value={customSubjectText}
-                onChange={(e) => setCustomSubjectText(e.target.value)}
-                placeholder="Example: Biology, English, History, Machine Learning"
-                className="form-input"
-              />
-              <button
-                type="button"
-                onClick={handleAddCustomSubject}
-                className="add-subject-button"
+          {/* Conditional Dropdown for Class or Semester */}
+          {formData.studentType && (
+            <div className="form-group" style={{ animation: 'slideDown 0.3s ease' }}>
+              <label htmlFor="class-semester-select" className="form-label">
+                {formData.studentType === 'School Student' ? 'Choose Class' : 'Choose Semester'}
+              </label>
+              <select
+                id="class-semester-select"
+                name="classOrSemester"
+                value={formData.classOrSemester}
+                onChange={handleInputChange}
+                className="form-select"
               >
-                Add Subject
-              </button>
+                <option value="" disabled>
+                  {formData.studentType === 'School Student' ? 'Select your class' : 'Select your semester'}
+                </option>
+                {formData.studentType === 'School Student' ? (
+                  <>
+                    <option value="Class 6">Class 6</option>
+                    <option value="Class 7">Class 7</option>
+                    <option value="Class 8">Class 8</option>
+                    <option value="Class 9">Class 9</option>
+                    <option value="Class 10">Class 10</option>
+                    <option value="Class 11">Class 11</option>
+                    <option value="Class 12">Class 12</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="Semester 1">Semester 1</option>
+                    <option value="Semester 2">Semester 2</option>
+                    <option value="Semester 3">Semester 3</option>
+                    <option value="Semester 4">Semester 4</option>
+                    <option value="Semester 5">Semester 5</option>
+                    <option value="Semester 6">Semester 6</option>
+                    <option value="Semester 7">Semester 7</option>
+                    <option value="Semester 8">Semester 8</option>
+                  </>
+                )}
+              </select>
             </div>
-          </div>
+          )}
 
           {/* 4. Exam Date */}
           <div className="form-group">
@@ -341,7 +310,7 @@ const GoalSetupPage = () => {
           {/* Continue button */}
           <div className="button-container">
             <button type="submit" className="submit-button">
-              CONTINUE TO ASSESSMENT
+              CONTINUE TO LEARNING MODE
             </button>
           </div>
         </form>
