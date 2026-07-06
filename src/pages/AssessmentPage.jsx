@@ -167,7 +167,7 @@ const AssessmentPage = () => {
   const studentType = setupData.studentType || localStorage.getItem('neurolearn_student_type') || 'College Student';
   const classOrSemester = localStorage.getItem('neurolearn_student_class_or_semester') || '';
   const totalSubjects = learningMode === 'Focus Mode' ? 1 : Math.min(setupSubjects.length, 2);
-  const questionsPerSubject = learningMode === 'Balanced Mode' ? 5 : 10;
+  const questionsPerSubject = 10;
 
   // =====================================================
   // STATE: Assessment questions & answers
@@ -251,7 +251,7 @@ const AssessmentPage = () => {
     console.log(`[AssessmentPage] Requesting assessment for Subject ${subjectIdx + 1}: ${setupSubject.subject}`);
 
     try {
-      const qCount = learningMode === 'Balanced Mode' ? 5 : 10;
+      const qCount = 10;
       const response = await fetch('/api/generate-assessment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
