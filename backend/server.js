@@ -388,7 +388,9 @@ Return ONLY valid JSON in this exact format:
       );
 
       if (!response.ok) {
+        console.log("GEMINI STATUS:", response.status);
         const errText = await response.text();
+        console.log("GEMINI ERROR BODY:", errText);
         throw new Error(`Gemini API HTTP ${response.status}: ${errText}`);
       }
 
@@ -507,7 +509,9 @@ app.post('/api/generate-assessment', async (req, res) => {
           fallback: false
         });
       } catch (error) {
-        console.error(`[Assessment] ❌ Failed for ${subjectName}:`, error.message);
+        const reason = error.message || String(error);
+        console.error(`[Assessment] ❌ Failed for ${subjectName}:`, reason);
+        console.log("ASSESSMENT FALLBACK REASON:", reason);
         console.log(`[Assessment] ⚠️ Activating dynamic fallback for ${subjectName} → ${chapterName}`);
         const fallbackQuestions = generateDynamicFallbackQuestions(subjectName, chapterName, parseInt(questionCount, 10) || 10);
         assessments.push({

@@ -209,13 +209,13 @@ const AssessmentPage = () => {
     setIsLoading(true);
     setErrorMessage('');
     setLoadingSubjectIndex(subjectIdx);
+    setIsFallbackActive(false);
 
     if (subjectIdx === 0) {
       setCurrentSubjectIndex(0);
       setCurrentQuestionIndex(0);
       setUserAnswers({});
       setAllAssessments([]);
-      setIsFallbackActive(false);
       localStorage.removeItem('neurolearn_generated_questions');
       localStorage.removeItem('neurolearn_assessment_result');
       localStorage.removeItem('neurolearn_assessment_results');
@@ -273,8 +273,10 @@ const AssessmentPage = () => {
 
       const data = await response.json();
 
-      if (data.fallback) {
+      if (data.fallback || data.source === 'fallback') {
         setIsFallbackActive(true);
+      } else {
+        setIsFallbackActive(false);
       }
 
       if (!data.assessments || !Array.isArray(data.assessments) || data.assessments.length === 0) {

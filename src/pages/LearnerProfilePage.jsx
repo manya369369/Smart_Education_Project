@@ -584,46 +584,7 @@ const LearnerProfilePage = () => {
           </div>
         </section>
 
-        {/* CTA Button */}
-        <div className="profile-actions">
-          <button 
-            type="button" 
-            onClick={() => {
-              const firstSub = selectedSubjects[0] || 'General Learning';
-              const scoreVal = subjectScores[firstSub] || percentage || 0;
-              const recTime = recommendedTimes[firstSub] || 60;
-              const matchingR = allRoadmaps.find(r => r.subject?.toLowerCase() === firstSub?.toLowerCase());
-              
-              let topicTitle = 'Introductory Concepts';
-              let topicIndex = 0;
-              let progressVal = 0;
-              if (matchingR && Array.isArray(matchingR.topics) && matchingR.topics.length > 0) {
-                const topics = matchingR.topics;
-                const completedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
-                progressVal = Math.round((completedCount / topics.length) * 100);
-                const incIdx = topics.findIndex(t => !t.completed && !t.isCompleted && t.status !== 'completed');
-                if (incIdx !== -1) {
-                  topicTitle = topics[incIdx].title || topicTitle;
-                  topicIndex = incIdx;
-                }
-              }
-              handleContinueDashboard({
-                subject: firstSub,
-                chapter: matchingR?.chapter || dataState.goal.chapter || 'Foundations',
-                recommendedStudyTime: recTime,
-                currentRoadmapTopic: topicTitle,
-                currentTopicIndex: topicIndex,
-                progress: progressVal,
-                weakTopics,
-                strongTopics,
-                assessmentScore: scoreVal
-              });
-            }} 
-            className="submit-button"
-          >
-            CONTINUE TO DASHBOARD
-          </button>
-        </div>
+
       </div>
     </div>
   );
