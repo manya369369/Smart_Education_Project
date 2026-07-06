@@ -75,33 +75,7 @@ function extractJsonArrayOrObject(text) {
   throw new Error("No JSON object or array found");
 }
 
-function generateFallbackQuestions(sub) {
-  const formattedSub = sub.charAt(0).toUpperCase() + sub.slice(1);
-  const topics = [`Fundamentals of ${formattedSub}`, `${formattedSub} Core Concepts`, `${formattedSub} Applications`, `Advanced ${formattedSub}`];
-  const questions = [];
-  for (let i = 1; i <= 10; i++) {
-    const difficulty = i <= 3 ? 'Easy' : (i <= 7 ? 'Medium' : 'Hard');
-    const topic = topics[(i - 1) % topics.length];
-    questions.push({
-      id: `fallback_q_${sub}_${i}`,
-      subject: sub,
-      topic: topic,
-      difficulty: difficulty,
-      question: `Which of the following best describes the key principle of ${topic}?`,
-      options: [
-        `Primary concept description for ${topic}`,
-        `Secondary concept description for ${topic}`,
-        `Alternative concept description for ${topic}`,
-        `Irrelevant description`
-      ],
-      correctAnswer: `Primary concept description for ${topic}`,
-      explanation: `The primary concept description represents the core principle of ${topic} in the study of ${formattedSub}.`
-    });
-  }
-  return questions;
-}
-
-function parseAndNormalizeQuestions(textResponse, targetSubject) {
+function parseAndNormalizeQuestions(textResponse, targetSubject, targetChapter) {
   const safeJsonText = extractJsonObject(textResponse);
   const parsedData = JSON.parse(safeJsonText);
 
@@ -124,7 +98,7 @@ function parseAndNormalizeQuestions(textResponse, targetSubject) {
   return questionsArray.map((q, index) => {
     const id = (q.id !== undefined && q.id !== null) ? q.id : (index + 1);
     const subject = q.subject || targetSubject;
-    const topic = q.topic || `${targetSubject} Basics`;
+    const topic = q.topic || q.roadmapTopic || `${targetSubject} Basics`;
     const difficulty = q.difficulty || "Medium";
     const questionText = q.question || "Question text missing";
 
@@ -147,6 +121,7 @@ function parseAndNormalizeQuestions(textResponse, targetSubject) {
     return {
       id,
       subject,
+      chapter: targetChapter || '',
       topic,
       difficulty,
       question: questionText,
@@ -157,106 +132,407 @@ function parseAndNormalizeQuestions(textResponse, targetSubject) {
   });
 }
 
-app.post('/api/generate-assessment', async (req, res) => {
-  const { subject, goal, examDate, studyTime, subjects, examGoal } = req.body;
-  const targetSubject = subject || (Array.isArray(subjects) ? subjects[0] : subjects) || 'General Learning';
-  const targetGoal = goal || examGoal || 'General Study';
+function validateQuestions(questions, selectedSubject) {
+  if (!Array.isArray(questions) || questions.length === 0) {
+    return false;
+  }
+  for (const q of questions) {
+    if (!q.subject || !q.chapter || !q.question || !Array.isArray(q.options) || q.options.length !== 4 || !q.correctAnswer) {
+      return false;
+    }
+    if (!q.options.includes(q.correctAnswer)) {
+      return false;
+    }
+    if (q.subject.toLowerCase() !== selectedSubject.toLowerCase()) {
+      return false;
+    }
+    const genericPhrases = ["key principle", "primary concept", "core foundations", "advanced topic", "general learning"];
+    const textToCheck = (q.question + " " + (q.explanation || "")).toLowerCase();
+    if (genericPhrases.some(phrase => textToCheck.includes(phrase))) {
+      return false;
+    }
+  }
+  return true;
+}
 
-  console.log(`[Backend] Generating assessment for subject: ${targetSubject}, Goal: ${targetGoal}`);
-  console.log("[Backend] Using Gemini model: gemini-2.5-flash");
+function generateDynamicFallbackQuestions(subject, chapter, questionCount) {
+  const fallbacks = [
+    {
+      question: `Which of the following best describes a core concept of ${chapter} in ${subject}?`,
+      options: [
+        `An optimized approach to solve problems related to ${chapter}.`,
+        `A theoretical model representing ${chapter} elements.`,
+        `The default standard specification of ${subject}.`,
+        `A storage mechanism used within ${subject} ecosystems.`
+      ],
+      correctAnswer: `An optimized approach to solve problems related to ${chapter}.`,
+      explanation: `In ${subject}, ${chapter} is primarily focused on optimization and structured methodologies.`
+    },
+    {
+      question: `What is the primary advantage of utilizing standard practices in ${chapter}?`,
+      options: [
+        `Significant reduction in computational overhead and complexity.`,
+        `Elimination of all logical constraints in the system.`,
+        `Automatic synchronization across all other modules of ${subject}.`,
+        `Hardware level acceleration for the underlying processes.`
+      ],
+      correctAnswer: `Significant reduction in computational overhead and complexity.`,
+      explanation: `Standard practices within ${chapter} ensure better scalability and computational efficiency.`
+    },
+    {
+      question: `Which of the following is a common challenge encountered when implementing ${chapter}?`,
+      options: [
+        `Handling boundary conditions and scaling requirements.`,
+        `Ensuring compatibility with unrelated subject modules.`,
+        `Converting all data objects to binary format.`,
+        `Reducing the user interface response delay.`
+      ],
+      correctAnswer: `Handling boundary conditions and scaling requirements.`,
+      explanation: `Scaling and boundary condition management are typical issues addressed in ${chapter} workflows.`
+    },
+    {
+      question: `In the context of ${subject}, how does ${chapter} interact with external entities?`,
+      options: [
+        `Through defined interfaces, protocols, or structured abstractions.`,
+        `By completely halting execution of the main thread.`,
+        `Using raw unstructured sockets without serialization.`,
+        `By bypassing the security layer of the environment.`
+      ],
+      correctAnswer: `Through defined interfaces, protocols, or structured abstractions.`,
+      explanation: `Abstractions and interfaces allow elements of ${chapter} to integrate safely and consistently.`
+    },
+    {
+      question: `Which metric is most commonly analyzed to evaluate the effectiveness of a solution in ${chapter}?`,
+      options: [
+        `Performance efficiency and structural correctness.`,
+        `The visual appearance of the output dashboard.`,
+        `The size of the source code repository.`,
+        `The compiler software version utilized.`
+      ],
+      correctAnswer: `Performance efficiency and structural correctness.`,
+      explanation: `Solutions in ${chapter} are evaluated based on how efficiently they run and how correct they are.`
+    },
+    {
+      question: `What is a fundamental prerequisite for understanding advanced aspects of ${chapter}?`,
+      options: [
+        `Familiarity with the foundational terms and relations of ${subject}.`,
+        `Completing assessments in unrelated academic subjects.`,
+        `Installing specialized third party database drivers.`,
+        `Acquiring commercial enterprise cloud licenses.`
+      ],
+      correctAnswer: `Familiarity with the foundational terms and relations of ${subject}.`,
+      explanation: `A strong grasp of the fundamentals of ${subject} is essential for learning ${chapter}.`
+    },
+    {
+      question: `Which of the following statements is true regarding ${chapter} principles?`,
+      options: [
+        `They adapt dynamically to different contexts within ${subject}.`,
+        `They are deprecated and no longer used in modern industries.`,
+        `They apply only to small scale local setups.`,
+        `They require manual override at every step of execution.`
+      ],
+      correctAnswer: `They adapt dynamically to different contexts within ${subject}.`,
+      explanation: `Principles of ${chapter} are generic and adapt to diverse settings across ${subject}.`
+    },
+    {
+      question: `How does optimization in ${chapter} affect overall system lifecycle?`,
+      options: [
+        `It improves maintenance costs and resource usage efficiency.`,
+        `It guarantees that no updates will ever be needed in the future.`,
+        `It limits the usage to single user local environments.`,
+        `It requires translating the codebase to machine level assembly.`
+      ],
+      correctAnswer: `It improves maintenance costs and resource usage efficiency.`,
+      explanation: `Optimizing ${chapter} workflows results in sustainable design and lower operational overhead.`
+    },
+    {
+      question: `What role do constraints play during the analysis of ${chapter}?`,
+      options: [
+        `They define the boundary limits within which solutions remain valid.`,
+        `They are completely ignored during standard design.`,
+        `They restrict the implementation to a single operating system.`,
+        `They automatically resolve logical conflicts during runtime.`
+      ],
+      correctAnswer: `They define the boundary limits within which solutions remain valid.`,
+      explanation: `Identifying and adhering to constraints is key to producing a working solution in ${chapter}.`
+    },
+    {
+      question: `Which approach is highly recommended when debugging issues in ${chapter}?`,
+      options: [
+        `Breaking the problem down into smaller, verifiable components.`,
+        `Deleting the local database and starting from scratch.`,
+        `Disabling all compiler warnings and error outputs.`,
+        `Changing variable names to random alphanumeric characters.`
+      ],
+      correctAnswer: `Breaking the problem down into smaller, verifiable components.`,
+      explanation: `Decomposition is the standard approach to isolate and resolve bugs in ${chapter}.`
+    }
+  ];
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error("[Backend] Error: GEMINI_API_KEY environment variable is not defined.");
-    const fallbackQuestions = generateFallbackQuestions(targetSubject);
-    return res.json({
-      source: "fallback",
-      message: "Gemini API key missing. Subject-specific fallback used.",
-      questions: fallbackQuestions
-    });
+  return fallbacks.slice(0, questionCount).map((q, idx) => ({
+    id: idx + 1,
+    subject,
+    chapter,
+    topic: `${chapter} Core`,
+    difficulty: idx < Math.round(questionCount * 0.3) ? "Easy" : (idx < Math.round(questionCount * 0.7) ? "Medium" : "Hard"),
+    question: q.question,
+    options: q.options,
+    correctAnswer: q.correctAnswer,
+    explanation: q.explanation
+  }));
+}
+
+// Generate assessment questions from roadmap topics using Gemini
+async function generateAssessmentForSubject(apiKey, subjectData, studentType, classOrSemester, examGoal, learningMode, generationSeed, questionCount = 10) {
+  const { subject, chapter, roadmapTopics } = subjectData;
+
+  const hasRoadmap = Array.isArray(roadmapTopics) && roadmapTopics.length > 0;
+  const topicListStr = hasRoadmap ? roadmapTopics.map((t, i) => `${i + 1}. ${t}`).join('\n') : '';
+
+  console.log(`[Assessment] Generating for: ${subject} → ${chapter}`);
+  console.log(`[Assessment] Roadmap topics (${roadmapTopics ? roadmapTopics.length : 0}): ${hasRoadmap ? roadmapTopics.join(', ') : 'none'}`);
+
+  // Map Academic Level to Class (School Student) or Semester (College Student)
+  let academicLevelStr;
+  if (studentType === 'School Student') {
+    academicLevelStr = `Class ${classOrSemester || ''}`;
+  } else if (studentType === 'College Student') {
+    academicLevelStr = `Semester ${classOrSemester || ''}`;
+  } else {
+    academicLevelStr = classOrSemester || 'Not specified';
   }
 
-  const prompt = `Generate 10 personalized diagnostic MCQ questions for a student.
-Subject: ${targetSubject}
-Goal: ${targetGoal}
-Exam Date: ${examDate || 'Not specified'}
-Daily Study Time: ${studyTime || 'Not specified'}
+  // Calculate difficulty progression counts
+  const easyCount = Math.max(1, Math.round(questionCount * 0.3));
+  const hardCount = Math.max(1, Math.round(questionCount * 0.3));
+  const mediumCount = Math.max(1, questionCount - easyCount - hardCount);
 
-Rules:
-- Generate questions strictly for the subject: ${targetSubject}.
-- Include a mix of Easy, Medium, and Hard questions.
-- Each question must have exactly 4 options.
-- Return ONLY valid JSON in the specified format. No markdown, no wrapper code, no extra text.
+  const roadmapSection = hasRoadmap
+    ? `The following are the EXACT roadmap topics for this chapter (in teaching order):
+${topicListStr}
 
-JSON format:
+Generate exactly ${questionCount} diagnostic MCQ questions ONLY from the above roadmap topics.
+Each question must map to one of these topics.`
+    : `Generate exactly ${questionCount} diagnostic MCQ questions ONLY for the selected subject and chapter.
+Since roadmap topics are not provided, you MUST infer real subtopics from the selected chapter ("${chapter}").
+Do not generate questions from other chapters of ${subject}.`;
+
+  const prompt = `You are an expert teacher creating a diagnostic assessment.
+
+Student Profile:
+- Student Type: ${studentType || 'General'}
+- Academic Level: ${academicLevelStr}
+- Exam Goal: ${examGoal || 'General Study'}
+- Learning Mode: ${learningMode || 'Focus Mode'}
+
+Subject: ${subject}
+Chapter: ${chapter}
+
+${roadmapSection}
+
+CRITICAL RULES:
+- Generate questions ONLY for the selected subject and selected chapter.
+- If roadmap topics are provided, use only those topics.
+- If roadmap topics are not provided, infer real subtopics from the selected chapter.
+- Do NOT generate questions from outside the selected chapter/topics.
+- Do NOT generate generic questions.
+- Do NOT generate filler questions.
+- Do NOT generate questions from the complete syllabus or unrelated chapters of ${subject}.
+- Do NOT use phrases like "key principle", "primary concept", "core foundations", "advanced topic", or "general learning".
+- Questions should test real understanding of the selected chapter/topic.
+- Every question must clearly map to the selected chapter.
+- Difficulty progression: first ${easyCount} questions Easy, next ${mediumCount} questions Medium, last ${hardCount} questions Hard.
+- Generate a diverse mix of question types: Conceptual, Logical, Application, Real Life, and Reasoning questions.
+- Each question must have exactly 4 options with one correct answer.
+- Personalize the depth and difficulty of every question strictly based on the student's profile:
+  - For example, a "School Student" in "Class 9" studying "Biology" must NOT receive advanced "NEET level" or college-level questions.
+  - A "College Student" in "Semester 2" studying "Data Structures & Algorithms" must NOT receive ultra-advanced "Google Interview" or senior-level system design questions.
+  - Tailor the questions to be age-appropriate and curriculum-aligned for a ${studentType || 'General'} student at the ${academicLevelStr} level.
+- Every generation must be unique. Never reuse wording. Never repeat questions or wording from previous assessments. Use the following random generation seed to ensure the questions, wording, and options are completely unique and fresh: ${generationSeed}.
+
+Return ONLY valid JSON in this exact format:
 {
- "questions":[
-   {
-     "subject": "${targetSubject}",
-     "topic": "Specific Topic Name",
-     "difficulty": "Easy",
-     "question": "Question text",
-     "options": ["Option A", "Option B", "Option C", "Option D"],
-     "correctAnswer": "Correct option text",
-     "explanation": "Short explanation"
-   }
- ]
+  "questions": [
+    {
+      "id": 1,
+      "subject": "${subject}",
+      "chapter": "${chapter}",
+      "topic": "real topic name (if roadmap is provided, must be the exact roadmap topic name; if not, a real subtopic you inferred)",
+      "difficulty": "Easy",
+      "question": "Clear, specific question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctAnswer": "The correct option text exactly matching one of the options",
+      "explanation": "Concise explanation of why this is the correct answer"
+    }
+  ]
 }`;
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
+  let attempts = 0;
+  const maxAttempts = 3;
+
+  while (attempts < maxAttempts) {
+    try {
+      attempts++;
+      console.log(`[Assessment] Gemini call attempt ${attempts} of ${maxAttempts} for ${subject}`);
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API HTTP ${response.status}: ${errText}`);
       }
-    );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[Backend] Gemini API responded with error status ${response.status}:`, errText);
-      const fallbackQuestions = generateFallbackQuestions(targetSubject);
-      return res.json({
-        source: "fallback",
-        message: "AI temporarily returned unreadable format. Subject-specific fallback used.",
-        questions: fallbackQuestions
-      });
+      const data = await response.json();
+      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!textResponse) {
+        throw new Error('Gemini returned empty content');
+      }
+
+      return parseAndNormalizeQuestions(textResponse, subject, chapter);
+
+    } catch (error) {
+      console.error(`[Assessment] Gemini call attempt ${attempts} failed:`, error.message);
+      if (attempts >= maxAttempts) {
+        throw error;
+      }
+      // Wait 1 second before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+app.post('/api/generate-assessment', async (req, res) => {
+  const {
+    studentType,
+    classOrSemester,
+    examGoal,
+    learningMode,
+    subjectAssessments,
+    generationSeed,
+    questionCount,
+    // Legacy fields for backward compatibility
+    subject,
+    // eslint-disable-next-line no-unused-vars
+    goal,
+    // eslint-disable-next-line no-unused-vars
+    examDate,
+    // eslint-disable-next-line no-unused-vars
+    studyTime
+  } = req.body;
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  // New roadmap-based assessment flow
+  if (subjectAssessments && Array.isArray(subjectAssessments) && subjectAssessments.length > 0) {
+    console.log(`[Assessment] Roadmap-based assessment request for ${subjectAssessments.length} subject(s)`);
+    console.log(`[Assessment] Mode: ${learningMode || 'Focus Mode'}`);
+
+    const seed = generationSeed || Date.now();
+    const assessments = [];
+
+    let targets = subjectAssessments;
+    if (learningMode === 'Focus Mode' && targets.length > 1) {
+      targets = [targets[0]];
+    } else if (learningMode === 'Balanced Mode' && targets.length > 2) {
+      targets = targets.slice(0, 2);
     }
 
-    const data = await response.json();
-    console.log("ASSESSMENT GEMINI RAW RESPONSE:", JSON.stringify(data, null, 2));
-    const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    for (let i = 0; i < targets.length; i++) {
+      const sa = targets[i];
+      const subjectName = sa.subject || 'General Learning';
+      const chapterName = sa.chapter || 'Topic';
+      const topics = Array.isArray(sa.roadmapTopics) ? sa.roadmapTopics : [];
 
-    if (!textResponse) {
-      console.error("[Backend] Gemini returned no content candidate parts:", JSON.stringify(data));
-      const fallbackQuestions = generateFallbackQuestions(targetSubject);
-      return res.json({
-        source: "fallback",
-        message: "AI temporarily returned unreadable format. Subject-specific fallback used.",
-        questions: fallbackQuestions
-      });
+      try {
+        if (!apiKey) {
+          throw new Error("Gemini API key missing");
+        }
+
+        console.log(`[Assessment] Generating questions for Subject ${i + 1}: ${subjectName} → ${chapterName}`);
+        let questions = await generateAssessmentForSubject(
+          apiKey,
+          { subject: subjectName, chapter: chapterName, roadmapTopics: topics },
+          studentType,
+          classOrSemester,
+          examGoal,
+          learningMode,
+          `${seed}_${i}`,
+          parseInt(questionCount, 10) || 10
+        );
+
+        // Validate questions
+        let isValid = validateQuestions(questions, subjectName);
+        if (!isValid) {
+          console.warn(`[Assessment] Validation failed for Subject ${subjectName}. Retrying Gemini once...`);
+          try {
+            questions = await generateAssessmentForSubject(
+              apiKey,
+              { subject: subjectName, chapter: chapterName, roadmapTopics: topics },
+              studentType,
+              classOrSemester,
+              examGoal,
+              learningMode,
+              `${seed}_${i}_retry`,
+              parseInt(questionCount, 10) || 10
+            );
+            isValid = validateQuestions(questions, subjectName);
+          } catch (retryErr) {
+            console.error(`[Assessment] Retry Gemini failed:`, retryErr.message);
+            isValid = false;
+          }
+        }
+
+        if (!isValid) {
+          console.error(`[Assessment] Questions invalid after retry. Using fallback.`);
+          throw new Error("Validation failed");
+        }
+
+        console.log(`[Assessment] ✅ Generated ${questions.length} questions for ${subjectName}`);
+        assessments.push({
+          subject: subjectName,
+          chapter: chapterName,
+          roadmapTopics: topics,
+          questions: questions,
+          fallback: false
+        });
+      } catch (error) {
+        console.error(`[Assessment] ❌ Failed for ${subjectName}:`, error.message);
+        console.log(`[Assessment] ⚠️ Activating dynamic fallback for ${subjectName} → ${chapterName}`);
+        const fallbackQuestions = generateDynamicFallbackQuestions(subjectName, chapterName, parseInt(questionCount, 10) || 10);
+        assessments.push({
+          subject: subjectName,
+          chapter: chapterName,
+          roadmapTopics: topics,
+          questions: fallbackQuestions,
+          fallback: true
+        });
+      }
     }
 
-    const normalizedQuestions = parseAndNormalizeQuestions(textResponse, targetSubject);
-    console.log(`[Backend] Assessment generated successfully with ${normalizedQuestions.length} questions.`);
-    res.json({
-      source: "gemini",
-      message: "Generated successfully",
-      questions: normalizedQuestions
-    });
-  } catch (error) {
-    console.error("[Backend] Exception occurred during generation:", error);
-    const fallbackQuestions = generateFallbackQuestions(targetSubject);
-    res.json({
-      source: "fallback",
-      message: "AI temporarily returned unreadable format. Subject-specific fallback used.",
-      questions: fallbackQuestions
+    const hasAnyFallback = assessments.some(a => a.fallback);
+    return res.json({
+      source: hasAnyFallback ? "fallback" : "gemini",
+      fallback: hasAnyFallback,
+      message: hasAnyFallback ? "Fallback-based assessment generated" : "Roadmap-based assessment generated",
+      learningMode: learningMode || 'Focus Mode',
+      assessments
     });
   }
+
+  // Legacy fallback: old-style assessment request (just subject/goal)
+  console.log(`[Assessment] Legacy assessment request for subject: ${subject || 'unknown'}`);
+  return res.status(400).json({ error: "Missing subjectAssessments data. Please provide roadmap-based assessment request." });
 });
 
 app.post('/api/generate-notes', async (req, res) => {
