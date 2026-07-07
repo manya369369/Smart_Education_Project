@@ -319,6 +319,133 @@ const generateDynamicQuestions = (topic) => {
   ];
 };
 
+const safeParseAllocatedMinutes = (value) => {
+  try {
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+
+    if (value && typeof value === "object") {
+      if (typeof value.minutes === "number") return value.minutes;
+      if (typeof value.allocatedMinutes === "number") return value.allocatedMinutes;
+      if (typeof value.recommendedStudyTime === "number") return value.recommendedStudyTime;
+      if (typeof value.value === "number") return value.value;
+    }
+
+    if (typeof value !== "string") {
+      return 60;
+    }
+
+    const text = value.trim().toLowerCase();
+    if (!text) return 60;
+
+    const numeric = Number(text);
+    if (!Number.isNaN(numeric)) return numeric;
+
+    const hourMatch = text.match(/(\d+(\.\d+)?)\s*(hour|hours|hr|hrs)/);
+    if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60);
+
+    const minuteMatch = text.match(/(\d+)\s*(minute|minutes|min|mins)/);
+    if (minuteMatch) return parseInt(minuteMatch[1], 10);
+
+    return 60;
+  } catch (e) {
+    console.error("Error parsing allocated minutes, returning default:", e);
+    return 60;
+  }
+};
+
+const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
+  const sessionKey = `${subject}__${chapter}`;
+  const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+  let sessions = {};
+  if (sessionsRaw) {
+    try {
+      sessions = JSON.parse(sessionsRaw);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  if (!sessions[sessionKey]) {
+    sessions[sessionKey] = {
+      subject,
+      chapter,
+      allocatedMinutes: allocatedMinutes || 60,
+      currentTopic: topic,
+      currentTopicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+      videoSeconds: 0,
+      notesSeconds: 0,
+      quizSeconds: 0,
+      totalSecondsSpent: 0,
+      remainingSeconds: (allocatedMinutes || 60) * 60,
+      videoCompleted: false,
+      videoCompletedAt: null,
+      notesCompleted: false,
+      notesCompletedAt: null,
+      quizCompleted: false,
+      quizCompletedAt: null,
+      quizScore: null,
+      topicProgressPercent: 0,
+      topicCompleted: false,
+      lastUpdated: new Date().toISOString()
+    };
+  }
+
+  const s = sessions[sessionKey];
+  Object.keys(fields).forEach(k => {
+    s[k] = fields[k];
+  });
+
+  let progress = 0;
+  if (s.videoCompleted) progress += 30;
+  if (s.notesCompleted) progress += 30;
+  if (s.quizCompleted || s.quizAttempted) progress += 20;
+  if (s.quizScore >= 70) progress += 20;
+
+  s.topicProgressPercent = progress;
+  s.topicCompleted = progress === 100;
+  s.lastUpdated = new Date().toISOString();
+
+  if (s.topicCompleted) {
+    try {
+      const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+      for (const key of roadmapKeys) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const matchedRoadmap = parsed.find(
+              r => r.subject?.toLowerCase() === subject?.toLowerCase() &&
+                   r.chapter?.toLowerCase() === chapter?.toLowerCase()
+            );
+            if (matchedRoadmap && Array.isArray(matchedRoadmap.topics)) {
+              const topicObj = matchedRoadmap.topics.find(
+                t => t.title?.toLowerCase() === topic?.toLowerCase() ||
+                     t.title?.toLowerCase().includes(topic?.toLowerCase()) ||
+                     topic?.toLowerCase().includes(t.title?.toLowerCase())
+              );
+              if (topicObj) {
+                topicObj.completed = true;
+                topicObj.isCompleted = true;
+                topicObj.status = 'completed';
+                localStorage.setItem(key, JSON.stringify(parsed));
+                console.log(`Updated roadmap topic completion in ${key}`);
+                break;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error updating roadmap topic completed state:", e);
+    }
+  }
+
+  localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+  return s;
+};
+
 const QuizPage = () => {
   const navigate = useNavigate();
 
@@ -326,6 +453,7 @@ const QuizPage = () => {
   const [topicInfo] = useState(() => {
     let activeTopic = '';
     let activeReason = '';
+    let savedTaskObj = null;
 
     // 1. Try reading active task
     try {
@@ -335,6 +463,7 @@ const QuizPage = () => {
         if (parsed.topic) {
           activeTopic = parsed.topic;
           activeReason = parsed.reason || 'Guided learning roadmap';
+          savedTaskObj = parsed;
         }
       }
     } catch (e) {
@@ -379,7 +508,8 @@ const QuizPage = () => {
     return {
       topic: activeTopic,
       reason: activeReason,
-      hasNoData: !activeTopic
+      hasNoData: !activeTopic,
+      task: savedTaskObj
     };
   });
 
@@ -391,6 +521,16 @@ const QuizPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState({});
   const [errorMessage, setErrorMessage] = useState('');
+  const [quizElapsedSeconds, setQuizElapsedSeconds] = useState(0);
+
+  // Time spent tracking effect for quiz
+  useEffect(() => {
+    if (topicInfo.hasNoData) return;
+    const interval = setInterval(() => {
+      setQuizElapsedSeconds(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [topicInfo]);
 
   // Fetch quiz questions from backend
   useEffect(() => {
@@ -637,6 +777,59 @@ const QuizPage = () => {
       localStorage.setItem('neurolearn_quiz_result', JSON.stringify(quizResult));
     } catch (err) {
       console.error("Error saving quiz result to localStorage", err);
+    }
+
+    // Update learning session time tracking data
+    try {
+      let activeSub = '';
+      try {
+        const savedAssessment = localStorage.getItem('neurolearn_assessment_results') || localStorage.getItem('neurolearn_assessment_result');
+        if (savedAssessment) {
+          const parsed = JSON.parse(savedAssessment);
+          activeSub = parsed.subject;
+        }
+      } catch (e) {}
+
+      const task = topicInfo.task;
+      const subj = task?.subject || activeSub || "General Learning";
+      const chap = task?.chapter || "General Foundations";
+      const allocMins = safeParseAllocatedMinutes(task?.time || task?.recommendedStudyTime);
+
+      const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+      let sessions = {};
+      if (sessionsRaw) {
+        sessions = JSON.parse(sessionsRaw);
+      }
+
+      // Check if session exists to retrieve original quizSeconds before updating
+      let existingQuizSeconds = 0;
+      const sessionKey = `${subj}__${chap}`;
+      if (sessions[sessionKey]) {
+        existingQuizSeconds = sessions[sessionKey].quizSeconds || 0;
+      }
+
+      updateSessionCompletion(subj, chap, topicInfo.topic, task?.currentTopicIndex, allocMins, {
+        quizSeconds: existingQuizSeconds + quizElapsedSeconds,
+        quizAttempted: true,
+        quizCompleted: true,
+        quizCompletedAt: new Date().toISOString(),
+        quizScore: percentage,
+        correctAnswers: finalScore,
+        wrongAnswers: totalQuestions - finalScore,
+        accuracy: percentage
+      });
+
+      // Update seconds spent totals
+      const updatedSessions = JSON.parse(localStorage.getItem('neurolearn_learning_sessions'));
+      const session = updatedSessions[sessionKey];
+      session.totalSecondsSpent = session.videoSeconds + session.notesSeconds + session.quizSeconds;
+      session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
+      session.lastUpdated = new Date().toISOString();
+      localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(updatedSessions));
+
+      console.log("Updated quiz session data:", session);
+    } catch (e) {
+      console.error("Error updating quiz session:", e);
     }
 
     // Update progress tracking key

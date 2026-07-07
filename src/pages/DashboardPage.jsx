@@ -133,6 +133,8 @@ const DashboardPage = () => {
   // Safe destructuring of data
   const { goal, assessment, isInvalid } = dashboardData;
 
+  const [showPopup, setShowPopup] = useState(true);
+
   const studentName = goal?.name || 'Learner';
   const examGoal = goal?.goal || goal?.examGoal || 'General Study';
   const examDate = goal?.examDate || '';
@@ -148,6 +150,123 @@ const DashboardPage = () => {
   const weakTopicsCount = weakTopics.length;
 
   const subjectScores = { [assessment?.subject || 'General Learning']: overallScore };
+
+  // ============================================================
+  // ROADMAP-INTEGRATED TIMETABLE: Read active journey + roadmap
+  // ============================================================
+  const todayStudy = useMemo(() => {
+    try {
+      // 1. Read the active subject journey saved by LearnerProfilePage
+      const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') || 
+                         localStorage.getItem('activeSubjectJourney') || 
+                         localStorage.getItem('neurolearn_active_journey');
+      if (!journeyRaw) return null;
+      const journey = JSON.parse(journeyRaw);
+      if (!journey || !journey.subject) return null;
+
+      // 2. Read the cached roadmaps
+      const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+      let allRoadmaps = [];
+      for (const key of roadmapKeys) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              allRoadmaps = parsed;
+              break;
+            }
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      // 3. Find the roadmap matching the active subject AND chapter
+      let matchingRoadmap = allRoadmaps.find(
+        r => r.subject?.toLowerCase() === journey.subject?.toLowerCase() &&
+             r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
+      );
+      if (!matchingRoadmap) {
+        matchingRoadmap = allRoadmaps.find(
+          r => r.subject?.toLowerCase() === journey.subject?.toLowerCase()
+        );
+      }
+      if (!matchingRoadmap || !Array.isArray(matchingRoadmap.topics) || matchingRoadmap.topics.length === 0) {
+        return null;
+      }
+
+      const topics = matchingRoadmap.topics;
+
+      // 4. Find the first incomplete topic
+      const incompleteIdx = topics.findIndex(t => !t.completed && !t.isCompleted && t.status !== 'completed');
+      const currentIdx = incompleteIdx !== -1 ? incompleteIdx : 0;
+      const currentTopic = topics[currentIdx];
+      const completedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
+
+      let topicProgressPercent = 0;
+      const sessionKey = `${journey.subject}__${matchingRoadmap.chapter || journey.chapter || 'General'}`;
+      try {
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        if (sessionsRaw) {
+          const sessions = JSON.parse(sessionsRaw);
+          const session = sessions[sessionKey];
+          if (session) {
+            topicProgressPercent = session.topicProgressPercent || 0;
+          }
+        }
+      } catch (e) {}
+
+      let overallProgressPercent = Math.round(((completedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      if (overallProgressPercent > 100) overallProgressPercent = 100;
+
+      return {
+        subject: journey.subject,
+        chapter: matchingRoadmap.chapter || journey.chapter || 'General',
+        topicTitle: currentTopic.title || `Topic ${currentIdx + 1}`,
+        topicIndex: currentIdx,
+        totalTopics: topics.length,
+        completedTopics: completedCount,
+        progressPercent: overallProgressPercent,
+        topicProgressPercent,
+        estimatedMinutes: currentTopic.estimatedMinutes || currentTopic.estimatedTime || journey.recommendedStudyTime || 60,
+        learningObjective: currentTopic.learningObjective || '',
+        difficulty: currentTopic.difficulty || 'Medium',
+        allocatedTime: journey.recommendedStudyTime || 60
+      };
+    } catch (e) {
+      console.error('[DashboardPage] Error reading roadmap timetable:', e);
+      return null;
+    }
+  }, []);
+
+  const activeSession = useMemo(() => {
+    if (!todayStudy) return null;
+    const sessionKey = `${todayStudy.subject}__${todayStudy.chapter}`;
+    try {
+      const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+      if (sessionsRaw) {
+        const sessions = JSON.parse(sessionsRaw);
+        return sessions[sessionKey];
+      }
+    } catch (e) {
+      console.error("Error reading session key for popup", e);
+    }
+    return null;
+  }, [todayStudy]);
+
+  const popupMessage = useMemo(() => {
+    if (!todayStudy) return "";
+    const spentMinutes = activeSession ? Math.floor(activeSession.totalSecondsSpent / 60) : 0;
+    const allocatedMinutes = activeSession ? activeSession.allocatedMinutes : (todayStudy.allocatedTime || 60);
+    const remainingMinutes = activeSession ? Math.ceil(activeSession.remainingSeconds / 60) : allocatedMinutes;
+
+    if (!activeSession || activeSession.totalSecondsSpent === 0) {
+      return `You have ${allocatedMinutes} minutes planned for ${todayStudy.subject} today. Start with your current roadmap topic.`;
+    }
+    if (activeSession.remainingSeconds <= 0) {
+      return `You have completed today’s allocated study time for ${todayStudy.subject}. Great work! You can revise or continue tomorrow.`;
+    }
+    return `You have studied ${spentMinutes} minutes out of ${allocatedMinutes} minutes for ${todayStudy.subject}. You still have ${remainingMinutes} minutes left today. You can continue your current roadmap topic.`;
+  }, [todayStudy, activeSession]);
 
   // Format Date for UI display
   const formattedExamDate = useMemo(() => {
@@ -252,27 +371,83 @@ const DashboardPage = () => {
   };
 
   const handleStartLearning = () => {
-    try {
-      const savedPlan = localStorage.getItem('neurolearn_study_plan');
-      if (savedPlan) {
-        const plan = JSON.parse(savedPlan);
-        if (plan && plan.tasks && plan.tasks.length > 0) {
-          const firstTask = plan.tasks[0];
-          const taskPayload = {
-            time: firstTask.time,
-            taskType: firstTask.taskType || firstTask.type || "Personalized Video",
-            topic: firstTask.topic,
-            reason: firstTask.reason
-          };
-          localStorage.setItem('neurolearn_current_learning_task', JSON.stringify(taskPayload));
-          navigate('/learning');
-          return;
-        }
-      }
-    } catch (e) {
-      console.error("Error reading study plan for Start Learning", e);
+    const activeSubRaw = localStorage.getItem('neurolearn_active_subject_journey') || localStorage.getItem('activeSubjectJourney') || localStorage.getItem('neurolearn_active_journey');
+    let activeJourney = null;
+    if (activeSubRaw) {
+      try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
     }
-    navigate('/study-plan');
+
+    const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
+    const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
+    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
+    const topicIdx = typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : (todayStudy?.topicIndex || 0);
+    const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
+
+    if (!subject || !topicVal) {
+      console.warn("Cannot start learning: subject or topic is undefined", { subject, topicVal });
+      return;
+    }
+
+    const taskPayload = {
+      subject,
+      chapter,
+      topic: topicVal,
+      currentTopicIndex: topicIdx,
+      taskType: "Personalized Video",
+      recommendedStudyTime: recTime,
+      source: "dashboard"
+    };
+
+    console.log("Opening learning task:", taskPayload);
+    localStorage.setItem('neurolearn_current_learning_task', JSON.stringify(taskPayload));
+    navigate('/learning');
+  };
+
+  const handleStartTopicResource = (resourceType) => {
+    const activeSubRaw = localStorage.getItem('neurolearn_active_subject_journey') || localStorage.getItem('activeSubjectJourney') || localStorage.getItem('neurolearn_active_journey');
+    let activeJourney = null;
+    if (activeSubRaw) {
+      try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
+    }
+
+    const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
+    const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
+    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
+    const topicIdx = typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : (todayStudy?.topicIndex || 0);
+    const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
+
+    let type = resourceType;
+    if (resourceType === 'AI Study Notes' || resourceType === 'AI Notes' || resourceType === 'notes') {
+      type = 'AI Notes';
+    } else if (resourceType === 'Personalized Video' || resourceType === 'video') {
+      type = 'Personalized Video';
+    } else if (resourceType === 'Adaptive Quiz' || resourceType === 'Quiz' || resourceType === 'quiz') {
+      type = 'Adaptive Quiz';
+    }
+
+    if (!subject || !topicVal || !type) {
+      console.warn("Cannot start learning resource: subject, topic, or taskType is undefined", { subject, topicVal, type });
+      return;
+    }
+
+    const taskPayload = {
+      subject,
+      chapter,
+      topic: topicVal,
+      currentTopicIndex: topicIdx,
+      taskType: type,
+      recommendedStudyTime: recTime,
+      source: "dashboard"
+    };
+
+    console.log("Opening learning task:", taskPayload);
+    localStorage.setItem('neurolearn_current_learning_task', JSON.stringify(taskPayload));
+
+    if (type === 'Adaptive Quiz') {
+      navigate('/quiz');
+    } else {
+      navigate('/learning');
+    }
   };
 
 
@@ -321,6 +496,49 @@ const DashboardPage = () => {
 
       <div className="dashboard-container">
         
+        {/* AI POPUP */}
+        {showPopup && todayStudy && (
+          <div className="glass-card" style={{
+            background: 'rgba(129, 140, 248, 0.15)',
+            border: '1px solid rgba(129, 140, 248, 0.3)',
+            padding: '1.25rem 1.5rem',
+            borderRadius: '16px',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            animation: 'fadeIn 0.5s ease',
+            position: 'relative'
+          }}>
+            <span style={{ fontSize: '1.5rem' }}>✨</span>
+            <div style={{ flex: 1 }}>
+              <strong style={{ display: 'block', fontSize: '0.85rem', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.25rem' }}>AI Study Insights</strong>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#e2e8f0', lineHeight: 1.4 }}>
+                {popupMessage}
+              </p>
+            </div>
+            <button 
+              onClick={() => setShowPopup(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1.2rem',
+                padding: '0.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'color 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.color = '#fff'}
+              onMouseLeave={(e) => e.target.style.color = '#94a3b8'}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        
         {/* PAGE HEADER */}
         <header className="dashboard-header animate-slideUp">
           <div className="header-title-container">
@@ -346,6 +564,80 @@ const DashboardPage = () => {
             </div>
           </div>
         </header>
+
+        {/* TODAY'S STUDY - ROADMAP TIMETABLE */}
+        {todayStudy && (
+          <section className="glass-card panel-card animate-stagger" style={{ '--delay': 1, marginBottom: '2rem', padding: '1.5rem 2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+              <span style={{ fontSize: '1.3rem' }}>📋</span>
+              <h2 className="panel-title" style={{ margin: 0 }}>Today's Study</h2>
+              <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#818cf8', fontWeight: 600, padding: '0.2rem 0.7rem', borderRadius: '20px', background: 'rgba(129, 140, 248, 0.12)', border: '1px solid rgba(129, 140, 248, 0.25)' }}>
+                {todayStudy.subject}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1.5rem', alignItems: 'start' }}>
+              {/* Left: Topic Info */}
+              <div>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.35rem' }}>Current Topic</span>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.35rem', color: '#f8fafc', fontWeight: 700 }}>{todayStudy.topicTitle}</h3>
+                {todayStudy.learningObjective && (
+                  <p style={{ margin: '0 0 0.75rem 0', color: '#94a3b8', fontSize: '0.9rem', fontStyle: 'italic' }}>{todayStudy.learningObjective}</p>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>📚 Chapter: <strong style={{ color: '#e2e8f0' }}>{todayStudy.chapter}</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏱️ Estimated: <strong style={{ color: '#818cf8' }}>{todayStudy.estimatedMinutes} min</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>🎯 Allocated: <strong style={{ color: '#34d399' }}>{todayStudy.allocatedTime} min</strong></span>
+                  <span className={`badge badge-${todayStudy.difficulty.toLowerCase()}`} style={{ fontSize: '0.8rem' }}>{todayStudy.difficulty}</span>
+                </div>
+
+                 {/* Progress bar */}
+                 <div style={{ marginTop: '0.5rem' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Current Topic Progress</span>
+                     <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>{todayStudy.topicProgressPercent || 0}%</span>
+                   </div>
+                   <div className="progress-track" style={{ marginBottom: '0.75rem' }}>
+                     <div className="progress-fill" style={{ width: `${todayStudy.topicProgressPercent || 0}%`, backgroundColor: '#34d399' }}></div>
+                   </div>
+
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Roadmap Progress</span>
+                     <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 600 }}>{todayStudy.completedTopics}/{todayStudy.totalTopics} topics · {todayStudy.progressPercent}%</span>
+                   </div>
+                   <div className="progress-track">
+                     <div className="progress-fill" style={{ width: `${todayStudy.progressPercent}%` }}></div>
+                   </div>
+                 </div>
+              </div>
+
+              {/* Right: Resource buttons */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '140px' }}>
+                <button
+                  className="action-card glass-card"
+                  onClick={() => handleStartTopicResource('Personalized Video')}
+                  style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>🎬 Video</span>
+                </button>
+                <button
+                  className="action-card glass-card"
+                  onClick={() => handleStartTopicResource('AI Study Notes')}
+                  style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>📝 Notes</span>
+                </button>
+                <button
+                  className="action-card glass-card"
+                  onClick={() => handleStartTopicResource('Adaptive Quiz')}
+                  style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>🧠 Quiz</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* TOP STATISTICS SECTION */}
         <section className="stats-section-grid">

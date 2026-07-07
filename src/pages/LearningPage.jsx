@@ -6,6 +6,7 @@ import '../styles/LearningPage.css';
 
 
 const generateFallbackNotes = (topicName) => {
+  if (!topicName) return { title: "Study Notes", level: "General", simpleDefinition: "", whyItMatters: "", keyPoints: [], stepByStepExplanation: [], commonMistakes: [], quickRevision: [], practiceQuestions: [], summary: "" };
   const t = topicName.toLowerCase();
   if (t.includes("optics")) {
     return {
@@ -229,8 +230,45 @@ const generateFallbackNotes = (topicName) => {
   };
 };
 
+const safeParseAllocatedMinutes = (value) => {
+  try {
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+
+    if (value && typeof value === "object") {
+      if (typeof value.minutes === "number") return value.minutes;
+      if (typeof value.allocatedMinutes === "number") return value.allocatedMinutes;
+      if (typeof value.recommendedStudyTime === "number") return value.recommendedStudyTime;
+      if (typeof value.value === "number") return value.value;
+    }
+
+    if (typeof value !== "string") {
+      return 60;
+    }
+
+    const text = value.trim().toLowerCase();
+    if (!text) return 60;
+
+    const numeric = Number(text);
+    if (!Number.isNaN(numeric)) return numeric;
+
+    const hourMatch = text.match(/(\d+(\.\d+)?)\s*(hour|hours|hr|hrs)/);
+    if (hourMatch) return Math.round(parseFloat(hourMatch[1]) * 60);
+
+    const minuteMatch = text.match(/(\d+)\s*(minute|minutes|min|mins)/);
+    if (minuteMatch) return parseInt(minuteMatch[1], 10);
+
+    return 60;
+  } catch (e) {
+    console.error("Error parsing allocated minutes, returning default:", e);
+    return 60;
+  }
+};
+
 const getMockTutorAnswer = (topicName, question) => {
-  const q = question.toLowerCase();
+  if (!topicName) return "How can I help you today?";
+  const q = question ? question.toLowerCase() : "";
   if (q.includes('what') || q.includes('define') || q.includes('meaning')) {
     return `That's a fundamental question! ${topicName} is structured to organize and optimize logic. Think of it as a blueprint for reducing complexity in this subject area. Let me know if you want a visual example!`;
   }
@@ -241,6 +279,7 @@ const getMockTutorAnswer = (topicName, question) => {
 };
 
 const getFallbackScenes = (topicName) => {
+  if (!topicName) return [];
   const t = topicName.toLowerCase();
   
   if (t.includes("genetics")) {
@@ -379,11 +418,85 @@ const getSentences = (text) => {
   return text.split(/(?<=[.!?])\s+/);
 };
 
+const getOrCreateSession = (subject, chapter, topic, topicIndex, allocatedMinutes) => {
+  const sessionKey = `${subject}__${chapter}`;
+  const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+  let sessions = {};
+  if (sessionsRaw) {
+    try {
+      sessions = JSON.parse(sessionsRaw);
+      if (!sessions || typeof sessions !== 'object') {
+        sessions = {};
+      }
+    } catch (e) {
+      console.error("Error parsing neurolearn_learning_sessions, clearing key:", e);
+      localStorage.removeItem('neurolearn_learning_sessions');
+      sessions = {};
+    }
+  }
+
+  if (!sessions || !sessions[sessionKey]) {
+    sessions[sessionKey] = {
+      subject: subject,
+      chapter: chapter,
+      allocatedMinutes: allocatedMinutes || 60,
+      currentTopic: topic,
+      currentTopicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+      videoSeconds: 0,
+      notesSeconds: 0,
+      quizSeconds: 0,
+      totalSecondsSpent: 0,
+      remainingSeconds: (allocatedMinutes || 60) * 60,
+      videoCompleted: false,
+      notesCompleted: false,
+      quizCompleted: false,
+      quizAttempted: false,
+      quizScore: null,
+      lastUpdated: new Date().toISOString()
+    };
+    localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+  } else {
+    let updated = false;
+    if (sessions[sessionKey].currentTopic !== topic) {
+      sessions[sessionKey].currentTopic = topic;
+      sessions[sessionKey].currentTopicIndex = typeof topicIndex === 'number' ? topicIndex : 0;
+      updated = true;
+    }
+    if (allocatedMinutes && sessions[sessionKey].allocatedMinutes !== allocatedMinutes) {
+      sessions[sessionKey].allocatedMinutes = allocatedMinutes;
+      sessions[sessionKey].remainingSeconds = Math.max(0, (allocatedMinutes * 60) - (sessions[sessionKey].totalSecondsSpent || 0));
+      updated = true;
+    }
+    if (updated) {
+      sessions[sessionKey].lastUpdated = new Date().toISOString();
+      localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+    }
+  }
+  return sessionKey;
+};
+
 // --- Main Learning Page Component ---
 
 const LearningPage = () => {
   const navigate = useNavigate();
   const chatEndRef = useRef(null);
+
+  // Safe Parsing for requested logs
+  let learningTask = null;
+  try {
+    const raw = localStorage.getItem('neurolearn_current_learning_task');
+    if (raw) learningTask = JSON.parse(raw);
+  } catch (e) {}
+
+  let activeSubjectJourney = null;
+  try {
+    const raw = localStorage.getItem('neurolearn_active_subject_journey') || localStorage.getItem('activeSubjectJourney') || localStorage.getItem('neurolearn_active_journey');
+    if (raw) activeSubjectJourney = JSON.parse(raw);
+  } catch (e) {}
+
+  console.log("LearningPage loaded");
+  console.log("Current learning task:", learningTask);
+  console.log("Active subject journey:", activeSubjectJourney);
 
   // 1. Load active learning task from localStorage with fallback hierarchy
   const [currentTask] = useState(() => {
@@ -392,53 +505,16 @@ const LearningPage = () => {
       const saved = localStorage.getItem('neurolearn_current_learning_task');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.topic) return parsed;
+        if (parsed && parsed.topic && parsed.subject && parsed.taskType) return parsed;
       }
     } catch (e) {
       console.error("[LearningPage] Error parsing neurolearn_current_learning_task:", e);
+      localStorage.removeItem('neurolearn_current_learning_task');
     }
-
-    try {
-      const savedPlan = localStorage.getItem('neurolearn_study_plan');
-      if (savedPlan) {
-        const plan = JSON.parse(savedPlan);
-        if (plan && plan.tasks && plan.tasks.length > 0) {
-          const firstTask = plan.tasks[0];
-          return {
-            taskType: firstTask.taskType || firstTask.type || "Personalized Video",
-            topic: firstTask.topic || "General Learning",
-            reason: firstTask.reason || ""
-          };
-        }
-      }
-    } catch (e) {
-      console.error("[LearningPage] Error parsing neurolearn_study_plan:", e);
-    }
-
-    try {
-      const savedGoal = localStorage.getItem('neurolearn_goal_data');
-      if (savedGoal) {
-        const goal = JSON.parse(savedGoal);
-        const subjects = goal?.subjects || [];
-        const firstSubject = subjects[0] || "General Learning";
-        return {
-          taskType: "Personalized Video",
-          topic: firstSubject,
-          reason: "Guided learning for subject"
-        };
-      }
-    } catch (e) {
-      console.error("[LearningPage] Error parsing neurolearn_goal_data:", e);
-    }
-
-    return {
-      taskType: "Personalized Video",
-      topic: "General Learning",
-      reason: "Guided daily learning roadmap"
-    };
+    return null;
   });
 
-  const { taskType, topic, reason } = currentTask;
+  const { taskType, topic, reason, subject } = currentTask || {};
 
   // 2. Select initial active tab based on taskType
   const [activeTab, setActiveTab] = useState(() => {
@@ -505,18 +581,270 @@ const LearningPage = () => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [liveCaption, setLiveCaption] = useState("");
   const [activeSentenceIndex, setActiveSentenceIndex] = useState(0);
-  const [videoCompleted, setVideoCompleted] = useState(false);
+  const [videoCompleted, setVideoCompleted] = useState(() => {
+    try {
+      const saved = localStorage.getItem('neurolearn_current_learning_task');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const subj = parsed.subject || "General Learning";
+        const chap = parsed.chapter || "General Foundations";
+        const sessionKey = `${subj}__${chap}`;
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        if (sessionsRaw) {
+          const sessions = JSON.parse(sessionsRaw);
+          return !!sessions[sessionKey]?.videoCompleted;
+        }
+      }
+    } catch (e) {}
+    return false;
+  });
+
+  const [notesCompleted, setNotesCompleted] = useState(() => {
+    try {
+      const saved = localStorage.getItem('neurolearn_current_learning_task');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const subj = parsed.subject || "General Learning";
+        const chap = parsed.chapter || "General Foundations";
+        const sessionKey = `${subj}__${chap}`;
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        if (sessionsRaw) {
+          const sessions = JSON.parse(sessionsRaw);
+          return !!sessions[sessionKey]?.notesCompleted;
+        }
+      }
+    } catch (e) {}
+    return false;
+  });
 
   const spokenCharIndexRef = useRef(0);
   const timerRef = useRef(null);
+
+  // Calculate Speech offsets and total duration
+  const totalDuration = useMemo(() => {
+    if (!scenes || scenes.length === 0) return 0;
+    const totalWords = scenes.reduce((acc, s) => acc + s.voiceover.split(/\s+/).length, 0);
+    return Math.round(totalWords / 2.5); // Average 150 words per minute
+  }, [scenes]);
+
+  const sceneOffsets = useMemo(() => {
+    if (!scenes || scenes.length === 0) return [];
+    let cumulative = 0;
+    return scenes.map(s => {
+      const words = s.voiceover.split(/\s+/).length;
+      const duration = Math.round(words / 2.5);
+      const start = cumulative;
+      cumulative += duration;
+      return { start, duration };
+    });
+  }, [scenes]);
+
+  const currentProgressSeconds = useMemo(() => {
+    if (!sceneOffsets || sceneOffsets.length === 0 || currentSceneIndex >= sceneOffsets.length) return 0;
+    const offset = sceneOffsets[currentSceneIndex]?.start || 0;
+    const sceneDur = sceneOffsets[currentSceneIndex]?.duration || 0;
+    const currentElapsed = Math.min(elapsedSeconds, sceneDur);
+    return offset + currentElapsed;
+  }, [sceneOffsets, currentSceneIndex, elapsedSeconds]);
 
   // Scroll to bottom of chat when new message arrives
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [tutorChat]);
 
+  const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
+    const sessionKey = `${subject}__${chapter}`;
+    const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+    let sessions = {};
+    if (sessionsRaw) {
+      try {
+        sessions = JSON.parse(sessionsRaw);
+        if (!sessions || typeof sessions !== 'object') {
+          sessions = {};
+        }
+      } catch (e) {
+        console.error(e);
+        sessions = {};
+      }
+    }
+
+    if (!sessions || !sessions[sessionKey]) {
+      sessions[sessionKey] = {
+        subject,
+        chapter,
+        allocatedMinutes: allocatedMinutes || 60,
+        currentTopic: topic,
+        currentTopicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+        videoSeconds: 0,
+        notesSeconds: 0,
+        quizSeconds: 0,
+        totalSecondsSpent: 0,
+        remainingSeconds: (allocatedMinutes || 60) * 60,
+        videoCompleted: false,
+        videoCompletedAt: null,
+        notesCompleted: false,
+        notesCompletedAt: null,
+        quizCompleted: false,
+        quizCompletedAt: null,
+        quizScore: null,
+        topicProgressPercent: 0,
+        topicCompleted: false,
+        lastUpdated: new Date().toISOString()
+      };
+    }
+
+    const s = sessions[sessionKey];
+    Object.keys(fields).forEach(k => {
+      s[k] = fields[k];
+    });
+
+    let progress = 0;
+    if (s.videoCompleted) progress += 30;
+    if (s.notesCompleted) progress += 30;
+    if (s.quizCompleted || s.quizAttempted) progress += 20;
+    if (s.quizScore >= 70) progress += 20;
+
+    s.topicProgressPercent = progress;
+    s.topicCompleted = progress === 100;
+    s.lastUpdated = new Date().toISOString();
+
+    if (s.topicCompleted) {
+      try {
+        const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+        for (const key of roadmapKeys) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              const matchedRoadmap = parsed.find(
+                r => r.subject?.toLowerCase() === subject?.toLowerCase() &&
+                     r.chapter?.toLowerCase() === chapter?.toLowerCase()
+              );
+              if (matchedRoadmap && Array.isArray(matchedRoadmap.topics)) {
+                const topicObj = matchedRoadmap.topics.find(
+                  t => t.title?.toLowerCase() === topic?.toLowerCase() ||
+                       t.title?.toLowerCase().includes(topic?.toLowerCase()) ||
+                       topic?.toLowerCase().includes(t.title?.toLowerCase())
+                );
+                if (topicObj) {
+                  topicObj.completed = true;
+                  topicObj.isCompleted = true;
+                  topicObj.status = 'completed';
+                  localStorage.setItem(key, JSON.stringify(parsed));
+                  console.log(`Updated roadmap topic completion in ${key}`);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error updating roadmap topic completed state:", e);
+      }
+    }
+
+    localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+    return s;
+  };
+
+  // Video currentTime monitoring for 90% completion
+  useEffect(() => {
+    if (totalDuration > 0 && currentProgressSeconds >= 0.9 * totalDuration) {
+      if (!videoCompleted) {
+        setVideoCompleted(true);
+      }
+    }
+  }, [currentProgressSeconds, totalDuration, videoCompleted]);
+
+  // Handle videoCompleted state updates to persist in sessions
+  useEffect(() => {
+    if (videoCompleted && topic) {
+      const subj = currentTask.subject || "General Learning";
+      const chap = currentTask.chapter || "General Foundations";
+      const allocMins = safeParseAllocatedMinutes(currentTask.time || currentTask.recommendedStudyTime);
+      updateSessionCompletion(subj, chap, topic, currentTask.currentTopicIndex, allocMins, {
+        videoCompleted: true,
+        videoCompletedAt: new Date().toISOString()
+      });
+      console.log("[LearningPage] Saved videoCompleted in session storage.");
+    }
+  }, [videoCompleted, topic, currentTask]);
+
+  // Handle notes scroll listener for 80% completion
+  useEffect(() => {
+    const handleScrollCapture = (e) => {
+      if (activeTab !== 'notes' || notesCompleted || !aiNotes) return;
+      const target = e.target;
+      if (target && target.scrollHeight) {
+        const pct = (target.scrollTop / (target.scrollHeight - target.clientHeight)) * 100;
+        if (pct >= 80) {
+          setNotesCompleted(true);
+          console.log("[LearningPage] Notes completed via element scroll percentage:", pct);
+        }
+      }
+    };
+    
+    window.addEventListener('scroll', handleScrollCapture, true);
+    return () => window.removeEventListener('scroll', handleScrollCapture, true);
+  }, [activeTab, notesCompleted, aiNotes]);
+
+  // Handle notesCompleted state updates to persist in sessions
+  useEffect(() => {
+    if (notesCompleted && topic) {
+      const subj = currentTask.subject || "General Learning";
+      const chap = currentTask.chapter || "General Foundations";
+      const allocMins = safeParseAllocatedMinutes(currentTask.time || currentTask.recommendedStudyTime);
+      updateSessionCompletion(subj, chap, topic, currentTask.currentTopicIndex, allocMins, {
+        notesCompleted: true,
+        notesCompletedAt: new Date().toISOString()
+      });
+      console.log("[LearningPage] Saved notesCompleted in session storage.");
+    }
+  }, [notesCompleted, topic, currentTask]);
+
+  // Learning Time Tracking Interval Effect
+  useEffect(() => {
+    if (!topic) return;
+
+    const subj = currentTask.subject || "General Learning";
+    const chap = currentTask.chapter || "General Foundations";
+    const allocMins = safeParseAllocatedMinutes(currentTask.time || currentTask.recommendedStudyTime);
+    const sessionKey = getOrCreateSession(subj, chap, topic, currentTask.currentTopicIndex, allocMins);
+
+    const interval = setInterval(() => {
+      const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+      if (!sessionsRaw) return;
+      try {
+        const sessions = JSON.parse(sessionsRaw);
+        const session = sessions[sessionKey];
+        if (!session) return;
+
+        let changed = false;
+        if (activeTab === 'video' && isPlaying) {
+          session.videoSeconds += 1;
+          changed = true;
+        } else if (activeTab === 'notes') {
+          session.notesSeconds += 1;
+          changed = true;
+        }
+
+        if (changed) {
+          session.totalSecondsSpent = session.videoSeconds + session.notesSeconds + session.quizSeconds;
+          session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
+          session.lastUpdated = new Date().toISOString();
+          localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+        }
+      } catch (e) {
+        console.error("Error updating session time", e);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, isPlaying, topic, currentTask]);
+
   // Load video scenes on mount
   useEffect(() => {
+    if (!topic) return;
     const fetchScenes = async () => {
       setIsLoadingScenes(true);
       let subject = 'General Learning';
@@ -550,33 +878,6 @@ const LearningPage = () => {
     };
     fetchScenes();
   }, [topic]);
-
-  // Calculate Speech offsets and total duration
-  const totalDuration = useMemo(() => {
-    if (!scenes || scenes.length === 0) return 0;
-    const totalWords = scenes.reduce((acc, s) => acc + s.voiceover.split(/\s+/).length, 0);
-    return Math.round(totalWords / 2.5); // Average 150 words per minute
-  }, [scenes]);
-
-  const sceneOffsets = useMemo(() => {
-    if (!scenes || scenes.length === 0) return [];
-    let cumulative = 0;
-    return scenes.map(s => {
-      const words = s.voiceover.split(/\s+/).length;
-      const duration = Math.round(words / 2.5);
-      const start = cumulative;
-      cumulative += duration;
-      return { start, duration };
-    });
-  }, [scenes]);
-
-  const currentProgressSeconds = useMemo(() => {
-    if (!sceneOffsets || sceneOffsets.length === 0 || currentSceneIndex >= sceneOffsets.length) return 0;
-    const offset = sceneOffsets[currentSceneIndex]?.start || 0;
-    const sceneDur = sceneOffsets[currentSceneIndex]?.duration || 0;
-    const currentElapsed = Math.min(elapsedSeconds, sceneDur);
-    return offset + currentElapsed;
-  }, [sceneOffsets, currentSceneIndex, elapsedSeconds]);
 
   // Clean up synthesis and timers on unmount
   useEffect(() => {
@@ -804,7 +1105,7 @@ const LearningPage = () => {
 
   // Interactive Graphic Scene Renderer
   const renderSceneVisual = () => {
-    if (scenes.length === 0 || currentSceneIndex >= scenes.length) return null;
+    if (!topic || scenes.length === 0 || currentSceneIndex >= scenes.length) return null;
     const scene = scenes[currentSceneIndex];
     const visualType = scene.visual;
 
@@ -983,7 +1284,34 @@ const LearningPage = () => {
     );
   };
 
-  return (
+  const isTaskInvalid = !currentTask || !topic || !taskType || !subject || 
+                        (taskType !== "Personalized Video" && 
+                         taskType !== "AI Notes" && 
+                         taskType !== "Adaptive Quiz");
+
+  if (isTaskInvalid) {
+    return (
+      <div className="learning-page-wrapper animate-fadeIn" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh', padding: '2rem' }}>
+        <div className="missing-data-card glass-card" style={{ textAlign: 'center', padding: '2.5rem', background: 'rgba(30, 41, 59, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', maxWidth: '480px', margin: '0 auto' }}>
+          <div className="alert-icon" style={{ fontSize: '3rem', marginBottom: '1.25rem' }}>⚠️</div>
+          <h2 className="alert-title" style={{ color: '#f8fafc', marginBottom: '0.75rem', fontSize: '1.5rem', fontWeight: 600 }}>No learning task selected.</h2>
+          <p className="alert-desc" style={{ color: '#94a3b8', marginBottom: '1.75rem', lineHeight: '1.6', fontSize: '0.95rem' }}>
+            Please go back to the dashboard and select Video or Notes to begin.
+          </p>
+          <button 
+            className="action-button-primary"
+            onClick={() => navigate('/dashboard')}
+            style={{ padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', border: 'none', fontWeight: 600 }}
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  try {
+    return (
     <div className="learning-page-wrapper animate-fadeIn">
       {/* Background Orbs */}
       <div className="background-orbs">
@@ -1283,21 +1611,38 @@ const LearningPage = () => {
                         <div className="completion-card glass-card">
                           <span className="check-badge">🎉</span>
                           <h3>Video Lesson Completed!</h3>
-                          <p>You have mastered the foundational concepts for this topic. Let's test your understanding!</p>
+                          <p>You have mastered the foundational concepts for this topic. Let's read the study notes next!</p>
                           <button 
-                            className="action-button-primary quiz-routing-cta"
+                            className="action-button-primary notes-routing-cta"
                             onClick={() => {
                               window.speechSynthesis.cancel();
                               clearInterval(timerRef.current);
-                              navigate('/quiz');
+                              setActiveTab('notes');
                             }}
                           >
-                            Navigate to quiz for {topic}
+                            Continue to Study Notes
                           </button>
                         </div>
                       </div>
                     )}
 
+                  </div>
+
+                  {/* Mark Video as Completed button */}
+                  <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'center' }}>
+                    {!videoCompleted ? (
+                      <button
+                        className="action-button-primary"
+                        style={{ padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer' }}
+                        onClick={() => setVideoCompleted(true)}
+                      >
+                        Mark Video as Completed
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#34d399', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                        <span>Video Completed ✓</span>
+                      </div>
+                    )}
                   </div>
 
                 </div>
@@ -1463,13 +1808,27 @@ const LearningPage = () => {
                         </div>
                       </div>
 
-                      <div className="notes-footer-actions">
+                      <div className="notes-footer-actions" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1.5rem', justifyContent: 'center', alignItems: 'center' }}>
                         <button 
                           className="regenerate-notes-btn"
                           onClick={handleGenerateNotes}
                         >
                           🔄 Regenerate Notes
                         </button>
+
+                        {!notesCompleted ? (
+                          <button 
+                            className="action-button-primary"
+                            onClick={() => setNotesCompleted(true)}
+                          >
+                            Mark Notes as Completed
+                          </button>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#34d399', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                            <span>Notes Completed ✓</span>
+                          </div>
+                        )}
+
                         <button 
                           className="action-button-primary notes-quiz-cta"
                           onClick={() => {
@@ -1478,7 +1837,7 @@ const LearningPage = () => {
                             navigate('/quiz');
                           }}
                         >
-                          Navigate to quiz for {topic}
+                          Start Practice Quiz →
                         </button>
                       </div>
                     </div>
@@ -1534,20 +1893,62 @@ const LearningPage = () => {
 
         {/* PERSISTENT BOTTOM ACTIONS */}
         <footer className="learning-footer-cta animate-slideUp">
-          <button 
-            className="action-button-primary take-quiz-bottom-cta"
-            onClick={() => {
-              window.speechSynthesis.cancel();
-              clearInterval(timerRef.current);
-              navigate('/quiz');
-            }}
-          >
-            Navigate to quiz for {topic}
-          </button>
+          {activeTab === 'video' ? (
+            <button 
+              className="action-button-primary take-quiz-bottom-cta"
+              onClick={() => {
+                handlePause();
+                setActiveTab('notes');
+              }}
+            >
+              Continue to Study Notes →
+            </button>
+          ) : activeTab === 'notes' ? (
+            <button 
+              className="action-button-primary take-quiz-bottom-cta"
+              onClick={() => {
+                navigate('/quiz');
+              }}
+            >
+              Start Practice Quiz →
+            </button>
+          ) : (
+            <button 
+              className="action-button-primary take-quiz-bottom-cta"
+              onClick={() => {
+                window.speechSynthesis.cancel();
+                clearInterval(timerRef.current);
+                navigate('/quiz');
+              }}
+            >
+              Navigate to quiz for {topic}
+            </button>
+          )}
         </footer>
       </div>
     </div>
   );
+  } catch (err) {
+    console.error("Rendering error in LearningPage:", err);
+    return (
+      <div className="learning-page-wrapper animate-fadeIn" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh', padding: '2rem' }}>
+        <div className="missing-data-card glass-card" style={{ textAlign: 'center', padding: '2.5rem', background: 'rgba(30, 41, 59, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', maxWidth: '480px', margin: '0 auto' }}>
+          <div className="alert-icon" style={{ fontSize: '3rem', marginBottom: '1.25rem' }}>⚠️</div>
+          <h2 className="alert-title" style={{ color: '#f8fafc', marginBottom: '0.75rem', fontSize: '1.5rem', fontWeight: 600 }}>No learning task selected.</h2>
+          <p className="alert-desc" style={{ color: '#94a3b8', marginBottom: '1.75rem', lineHeight: '1.6', fontSize: '0.95rem' }}>
+            An unexpected error occurred or no learning task was selected. Please go back to the dashboard.
+          </p>
+          <button 
+            className="action-button-primary"
+            onClick={() => navigate('/dashboard')}
+            style={{ padding: '0.75rem 2rem', borderRadius: '8px', cursor: 'pointer', border: 'none', fontWeight: 600 }}
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 };
 
 export default LearningPage;

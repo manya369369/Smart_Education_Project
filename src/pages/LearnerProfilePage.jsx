@@ -510,7 +510,9 @@ const LearnerProfilePage = () => {
                 progress: progressVal,
                 weakTopics,
                 strongTopics,
-                assessmentScore: scoreVal
+                assessmentScore: scoreVal,
+                roadmapId: matchingR?.id || matchingR?.roadmapId || "",
+                currentTopic: currentTopic
               };
 
               return (
