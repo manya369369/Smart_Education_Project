@@ -71,14 +71,11 @@ const GoalSetupPage = () => {
         'neurolearn_current_learning_task',
         'neurolearn_quiz_result',
         'neurolearn_tomorrow_plan',
-        'roadmaps',
-        'neurolearn_subject_progress',
         'neurolearn_learning_sessions',
         'neurolearn_active_subject_journey',
         'activeSubjectJourney',
         'neurolearn_active_journey',
         'neurolearn_subject_timetables',
-        'neurolearn_roadmaps_by_key',
         'neurolearn_topic_attempts'
       ];
       keysToClear.forEach(key => localStorage.removeItem(key));

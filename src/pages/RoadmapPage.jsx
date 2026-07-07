@@ -100,13 +100,9 @@ const RoadmapPage = () => {
               examGoal
             });
             console.log("ROADMAP KEY:", rKey);
-            console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
-            console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+            console.log("ROADMAP EXISTS:", Boolean(existingRoadmap));
+            console.log("REUSING SAVED ROADMAP:", Boolean(existingRoadmap));
             console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
-
-            if (existingRoadmap) {
-              console.log("REUSING EXISTING ROADMAP:", rKey);
-            }
             return !!existingRoadmap;
           });
           if (allExist) {
@@ -186,12 +182,11 @@ const RoadmapPage = () => {
             examGoal
           });
           console.log("ROADMAP KEY:", roadmapKey);
-          console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
-          console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+          console.log("ROADMAP EXISTS:", Boolean(existingRoadmap));
+          console.log("REUSING SAVED ROADMAP:", Boolean(existingRoadmap));
           console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
-          
+
           if (existingRoadmap) {
-            console.log("REUSING EXISTING ROADMAP:", roadmapKey);
             results.push(existingRoadmap);
           } else {
             console.log("CALLING GEMINI ROADMAP GENERATION");
@@ -271,12 +266,11 @@ const RoadmapPage = () => {
             examGoal
           });
           console.log("ROADMAP KEY:", roadmapKey);
-          console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
-          console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+          console.log("ROADMAP EXISTS:", Boolean(existingRoadmap));
+          console.log("REUSING SAVED ROADMAP:", Boolean(existingRoadmap));
           console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
 
           if (existingRoadmap) {
-            console.log("REUSING EXISTING ROADMAP:", roadmapKey);
             return existingRoadmap;
           }
 
