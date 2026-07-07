@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import '../styles/GoalSetupPage.css';
+import '../styles/AuthPages.css';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -11,22 +12,12 @@ const LoginPage = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
-
-  useEffect(() => {
-    try {
-      const userRaw = localStorage.getItem('neurolearn_user');
-      if (userRaw) {
-        const userObj = JSON.parse(userRaw);
-        if (userObj.loggedIn) {
-          navigate('/goal-setup');
-        }
-      }
-    } catch (e) {}
-  }, [navigate]);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (errorMessage) setErrorMessage('');
   };
 
   const handleSubmit = (e) => {
@@ -35,8 +26,19 @@ const LoginPage = () => {
 
     const { email, password } = formData;
 
-    if (!email.trim() || !password.trim()) {
-      setErrorMessage('Please enter both email and password.');
+    if (!email.trim()) {
+      setErrorMessage('Email is required.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    if (!password.trim()) {
+      setErrorMessage('Password is required.');
       return;
     }
 
@@ -50,7 +52,7 @@ const LoginPage = () => {
       const account = accounts[targetEmail];
 
       if (!account) {
-        setErrorMessage('No account found. Please sign up first.');
+        setErrorMessage('No account found with this email. Please sign up first.');
         setIsLoading(false);
         return;
       }
@@ -61,18 +63,18 @@ const LoginPage = () => {
         return;
       }
 
-      // Success
+      // Success — save session
       localStorage.setItem('neurolearn_user', JSON.stringify({
         name: account.name,
         email: account.email,
         loggedIn: true,
-        loginTime: new Date().toISOString()
+        loginTime: Date.now()
       }));
 
-      console.log("Logged in successfully via local auth");
+      console.log("[LoginPage] Logged in successfully via local auth");
       navigate('/goal-setup');
     } catch (err) {
-      console.error("Local login error:", err);
+      console.error("[LoginPage] Local login error:", err);
       setErrorMessage('An error occurred during login.');
     } finally {
       setIsLoading(false);
@@ -85,12 +87,12 @@ const LoginPage = () => {
 
   return (
     <div className="goal-setup-wrapper animate-fadeIn">
-      {/* Small Back button at top-left corner */}
+      {/* Back button */}
       <button className="back-button" onClick={handleBack} type="button">
         ← Back
       </button>
 
-      {/* Main card centered on page */}
+      {/* Main card */}
       <div className="goal-card">
         <header className="goal-card-header">
           <h1 className="goal-card-title">Welcome to NeuroLearn</h1>
@@ -100,7 +102,7 @@ const LoginPage = () => {
         </header>
 
         <form onSubmit={handleSubmit} className="goal-form">
-          {/* Error Message inside the card */}
+          {/* Error Message */}
           {errorMessage && (
             <div className="error-banner">
               <span className="error-icon">!</span>
@@ -108,7 +110,7 @@ const LoginPage = () => {
             </div>
           )}
 
-          {/* 1. Email Address */}
+          {/* Email */}
           <div className="form-group">
             <label htmlFor="login-email-input" className="form-label">
               Email Address
@@ -122,26 +124,40 @@ const LoginPage = () => {
               placeholder="name@domain.com"
               className="form-input"
               disabled={isLoading}
+              autoComplete="email"
             />
           </div>
 
-          {/* 2. Password */}
+          {/* Password with show/hide */}
           <div className="form-group">
             <label htmlFor="login-password-input" className="form-label">
               Password
             </label>
-            <input
-              id="login-password-input"
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleInputChange}
-              placeholder="••••••••"
-              className="form-input"
-              disabled={isLoading}
-            />
+            <div className="password-field-wrapper">
+              <input
+                id="login-password-input"
+                type={showPassword ? 'text' : 'password'}
+                name="password"
+                value={formData.password}
+                onChange={handleInputChange}
+                placeholder="••••••••"
+                className="form-input"
+                disabled={isLoading}
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                className="password-toggle-btn"
+                onClick={() => setShowPassword(prev => !prev)}
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
+          {/* Forgot Password link */}
           <div style={{ textAlign: 'right', fontSize: '0.85rem' }}>
             <button
               type="button"
@@ -167,6 +183,7 @@ const LoginPage = () => {
             </button>
           </div>
 
+          {/* Sign Up link */}
           <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.9rem', color: '#94a3b8' }}>
             Don't have an account?{' '}
             <Link to="/signup" style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none' }}>
