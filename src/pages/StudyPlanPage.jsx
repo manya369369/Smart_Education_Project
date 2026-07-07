@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/StudyPlanPage.css';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, initFreshTopicSession } from '../utils/sessionHelpers';
 
 const StudyPlanPage = () => {
   const navigate = useNavigate();
@@ -99,11 +100,43 @@ const StudyPlanPage = () => {
       }
 
       const topics = matchingRoadmap.topics;
-      const incompleteIdx = topics.findIndex(t => !t.completed && !t.isCompleted && t.status !== 'completed');
+
+      // Check both roadmap completion and subject progress completed topics
+      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
+      const completedIndices = completedList.map(t => t.topicIndex);
+
+      const incompleteIdx = topics.findIndex((t, idx) => {
+        const isSavedCompleted = completedIndices.includes(idx);
+        const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
+        return !isSavedCompleted && !isRoadmapCompleted;
+      });
       const currentIdx = incompleteIdx !== -1 ? incompleteIdx : 0;
       const currentTopic = topics[currentIdx];
-      const completedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
-      const progressPercent = Math.round((completedCount / topics.length) * 100);
+
+      console.log("Selected next incomplete topic:", currentTopic.title);
+
+      // Ensure the session is initialized fresh if it doesn't exist yet
+      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx, journey.recommendedStudyTime || 60);
+
+      let topicProgressPercent = 0;
+      let revisionScheduled = false;
+      const sessionKey = buildTopicSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx);
+      try {
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        if (sessionsRaw) {
+          const sessions = JSON.parse(sessionsRaw);
+          const session = sessions[sessionKey];
+          if (session) {
+            const { topicProgressPercent: calcProg } = calcTopicProgress(session);
+            topicProgressPercent = calcProg;
+            revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+          }
+        }
+      } catch (e) {}
+
+      const roadmapCompletedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
+      const completedCount = Math.max(completedList.length, roadmapCompletedCount);
+      const progressPercent = Math.round(((completedCount + (topicProgressPercent / 100)) / topics.length) * 100);
 
       return {
         subject: journey.subject,
@@ -117,7 +150,9 @@ const StudyPlanPage = () => {
         learningObjective: currentTopic.learningObjective || '',
         difficulty: currentTopic.difficulty || 'Medium',
         allocatedTime: journey.recommendedStudyTime || 60,
-        currentTopic: currentTopic
+        currentTopic: currentTopic,
+        revisionScheduled,
+        topicProgressPercent
       };
     } catch (e) {
       console.error('[StudyPlanPage] Error reading active journey study:', e);
@@ -159,6 +194,9 @@ const StudyPlanPage = () => {
   // Topic list focus banner sentence
   const priorityFocusBanner = useMemo(() => {
     if (activeJourneyStudy) {
+      if (activeJourneyStudy.revisionScheduled) {
+        return `Revise ${activeJourneyStudy.topicTitle} in ${activeJourneyStudy.subject}. Low quiz score detected.`;
+      }
       return `Focus on ${activeJourneyStudy.topicTitle} in ${activeJourneyStudy.subject} before moving to advanced concepts.`;
     }
     if (priorityTopics.length === 1) {
@@ -245,20 +283,57 @@ const StudyPlanPage = () => {
   // State to hold generated plan
   const [currentPlan, setCurrentPlan] = useState(() => {
     if (activeJourneyStudy) {
+      const expectedTopic = activeJourneyStudy.revisionScheduled ? `Revise ${activeJourneyStudy.topicTitle}` : activeJourneyStudy.topicTitle;
+      
       const savedPlan = localStorage.getItem('neurolearn_study_plan');
       if (savedPlan) {
         try {
           const parsed = JSON.parse(savedPlan);
           // Verify it matches active journey subject and topic
           if (parsed && parsed.generatedFromSubject === activeJourneyStudy.subject && 
-              parsed.tasks && parsed.tasks.length > 0 && parsed.tasks[0].topic === activeJourneyStudy.topicTitle) {
+              parsed.tasks && parsed.tasks.length > 0 && 
+              (parsed.tasks[0].topic === expectedTopic || parsed.tasks[0].topic === activeJourneyStudy.topicTitle)) {
             return parsed;
           }
         } catch (e) { /* skip */ }
       }
 
       // Generate a fresh subject-specific plan for the active topic
-      const tasks = [
+      const tasks = activeJourneyStudy.revisionScheduled ? [
+        {
+          time: "09:00 AM",
+          icon: "📝",
+          taskType: "AI Notes",
+          topic: `Revise ${activeJourneyStudy.topicTitle}`,
+          reason: `Low quiz score detected. Review notes to clarify core concepts.`,
+          subject: activeJourneyStudy.subject,
+          chapter: activeJourneyStudy.chapter,
+          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+          currentTopicIndex: activeJourneyStudy.topicIndex
+        },
+        {
+          time: "09:30 AM",
+          icon: "📹",
+          taskType: "Personalized Video",
+          topic: `Revise ${activeJourneyStudy.topicTitle}`,
+          reason: `Low quiz score detected. Rewatch the video to reinforce your memory.`,
+          subject: activeJourneyStudy.subject,
+          chapter: activeJourneyStudy.chapter,
+          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+          currentTopicIndex: activeJourneyStudy.topicIndex
+        },
+        {
+          time: "10:00 AM",
+          icon: "🧠",
+          taskType: "Adaptive Quiz",
+          topic: `Revise ${activeJourneyStudy.topicTitle}`,
+          reason: `Low quiz score detected. Retake the quiz to test your updated knowledge.`,
+          subject: activeJourneyStudy.subject,
+          chapter: activeJourneyStudy.chapter,
+          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+          currentTopicIndex: activeJourneyStudy.topicIndex
+        }
+      ] : [
         {
           time: "09:00 AM",
           icon: "📹",
@@ -299,7 +374,10 @@ const StudyPlanPage = () => {
         generatedFromWeakTopics: [activeJourneyStudy.topicTitle],
         tasks: tasks,
         estimatedTime: `${activeJourneyStudy.estimatedMinutes * 3} Minutes focused session`,
-        reasons: [
+        reasons: activeJourneyStudy.revisionScheduled ? [
+          `Revision priority: Low quiz score detected for ${activeJourneyStudy.topicTitle}.`,
+          `Aligned to chapter: ${activeJourneyStudy.chapter}.`
+        ] : [
           `Prioritized active roadmap topic: ${activeJourneyStudy.topicTitle}.`,
           `Aligned to chapter: ${activeJourneyStudy.chapter}.`
         ],
@@ -339,10 +417,15 @@ const StudyPlanPage = () => {
     const recTime = task.recommendedStudyTime || activeJourneyStudy?.estimatedMinutes || 60;
     const taskTypeVal = task.taskType || task.type || "Personalized Video";
 
+    let cleanTopic = topicVal;
+    if (topicVal.startsWith("Revise ")) {
+      cleanTopic = topicVal.substring(7);
+    }
+
     const taskPayload = {
       subject: subj,
       chapter: chap,
-      topic: topicVal,
+      topic: cleanTopic,
       currentTopicIndex: topicIdx,
       taskType: taskTypeVal,
       recommendedStudyTime: recTime,
@@ -367,49 +450,106 @@ const StudyPlanPage = () => {
       setSuccessMessage("");
       
       setTimeout(() => {
-        const tasks = [
+        // Read if revision is scheduled
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        let revisionScheduled = false;
+        let activeTopicTitle = activeJourneyStudy.topicTitle;
+        let currentIdx = activeJourneyStudy.topicIndex;
+        if (sessionsRaw) {
+          try {
+            const sessions = JSON.parse(sessionsRaw);
+            const sessionKey = buildTopicSessionKey(activeJourneyStudy.subject, activeJourneyStudy.chapter, activeTopicTitle, currentIdx);
+            const session = sessions[sessionKey];
+            if (session) {
+              revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+              if (revisionScheduled) {
+                activeTopicTitle = session.currentTopic || activeJourneyStudy.topicTitle;
+                currentIdx = typeof session.currentTopicIndex === 'number' ? session.currentTopicIndex : activeJourneyStudy.topicIndex;
+              }
+            }
+          } catch (e) {}
+        }
+
+        const tasks = revisionScheduled ? [
           {
             time: "09:00 AM",
-            icon: "📹",
-            taskType: "Personalized Video",
-            topic: activeJourneyStudy.topicTitle,
-            reason: `Watch a personalized visual explanation of ${activeJourneyStudy.topicTitle}.`,
+            icon: "📝",
+            taskType: "AI Notes",
+            topic: `Revise ${activeTopicTitle}`,
+            reason: `Low quiz score detected. Review notes to clarify core concepts.`,
             subject: activeJourneyStudy.subject,
             chapter: activeJourneyStudy.chapter,
             recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-            currentTopicIndex: activeJourneyStudy.topicIndex
+            currentTopicIndex: currentIdx
           },
           {
             time: "09:30 AM",
-            icon: "📝",
-            taskType: "AI Notes",
-            topic: activeJourneyStudy.topicTitle,
-            reason: `Review detailed conceptual study notes on ${activeJourneyStudy.topicTitle}.`,
+            icon: "📹",
+            taskType: "Personalized Video",
+            topic: `Revise ${activeTopicTitle}`,
+            reason: `Low quiz score detected. Rewatch the video to reinforce your memory.`,
             subject: activeJourneyStudy.subject,
             chapter: activeJourneyStudy.chapter,
             recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-            currentTopicIndex: activeJourneyStudy.topicIndex
+            currentTopicIndex: currentIdx
           },
           {
             time: "10:00 AM",
             icon: "🧠",
             taskType: "Adaptive Quiz",
-            topic: activeJourneyStudy.topicTitle,
-            reason: `Test your understanding of ${activeJourneyStudy.topicTitle} with an adaptive quiz.`,
+            topic: `Revise ${activeTopicTitle}`,
+            reason: `Low quiz score detected. Retake the quiz to test your updated knowledge.`,
             subject: activeJourneyStudy.subject,
             chapter: activeJourneyStudy.chapter,
             recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-            currentTopicIndex: activeJourneyStudy.topicIndex
+            currentTopicIndex: currentIdx
+          }
+        ] : [
+          {
+            time: "09:00 AM",
+            icon: "📹",
+            taskType: "Personalized Video",
+            topic: activeTopicTitle,
+            reason: `Watch a personalized visual explanation of ${activeTopicTitle}.`,
+            subject: activeJourneyStudy.subject,
+            chapter: activeJourneyStudy.chapter,
+            recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+            currentTopicIndex: currentIdx
+          },
+          {
+            time: "09:30 AM",
+            icon: "📝",
+            taskType: "AI Notes",
+            topic: activeTopicTitle,
+            reason: `Review detailed conceptual study notes on ${activeTopicTitle}.`,
+            subject: activeJourneyStudy.subject,
+            chapter: activeJourneyStudy.chapter,
+            recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+            currentTopicIndex: currentIdx
+          },
+          {
+            time: "10:00 AM",
+            icon: "🧠",
+            taskType: "Adaptive Quiz",
+            topic: activeTopicTitle,
+            reason: `Test your understanding of ${activeTopicTitle} with an adaptive quiz.`,
+            subject: activeJourneyStudy.subject,
+            chapter: activeJourneyStudy.chapter,
+            recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
+            currentTopicIndex: currentIdx
           }
         ];
-        
+
         const freshPlan = {
           generatedFromSubject: activeJourneyStudy.subject,
-          generatedFromWeakTopics: [activeJourneyStudy.topicTitle],
+          generatedFromWeakTopics: [activeTopicTitle],
           tasks: tasks,
           estimatedTime: `${activeJourneyStudy.estimatedMinutes * 3} Minutes focused session`,
-          reasons: [
-            `Prioritized active roadmap topic: ${activeJourneyStudy.topicTitle}.`,
+          reasons: revisionScheduled ? [
+            `Revision priority: Low quiz score detected for ${activeTopicTitle}.`,
+            `Aligned to chapter: ${activeJourneyStudy.chapter}.`
+          ] : [
+            `Prioritized active roadmap topic: ${activeTopicTitle}.`,
             `Aligned to chapter: ${activeJourneyStudy.chapter}.`
           ],
           completion: 0,
@@ -693,13 +833,26 @@ const StudyPlanPage = () => {
               <h3 className="panel-title">Today's Completion</h3>
               <div className="completion-progress-wrapper">
                 <div className="completion-percentage-row">
-                  <span className="completion-value">0%</span>
-                  <span className="completion-status">Not Started</span>
+                  <span className="completion-value">{activeJourneyStudy?.topicProgressPercent || 0}%</span>
+                  <span className="completion-status">
+                    {activeJourneyStudy?.topicProgressPercent === 100 ? "Completed ✓" : (activeJourneyStudy?.topicProgressPercent > 0 ? "In Progress" : "Not Started")}
+                  </span>
+                </div>
+                <div className="completion-progress-track" style={{ marginBottom: '1rem' }}>
+                  <div className="completion-progress-fill" style={{ width: `${activeJourneyStudy?.topicProgressPercent || 0}%` }}></div>
+                </div>
+
+                {/* Roadmap Progress */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Roadmap Progress</span>
+                  <span style={{ fontSize: '0.8rem', color: '#818cf8', fontWeight: 600 }}>
+                    {activeJourneyStudy?.completedTopics || 0}/{activeJourneyStudy?.totalTopics || 0} topics
+                  </span>
                 </div>
                 <div className="completion-progress-track">
-                  <div className="completion-progress-fill" style={{ width: '0%' }}></div>
+                  <div className="completion-progress-fill" style={{ width: `${activeJourneyStudy?.progressPercent || 0}%`, backgroundColor: '#818cf8' }}></div>
                 </div>
-                <p className="completion-footer-text">
+                <p className="completion-footer-text" style={{ marginTop: '0.5rem' }}>
                   Complete learning tasks to unlock tomorrow's adaptive plan.
                 </p>
               </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/DashboardPage.css';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession } from '../utils/sessionHelpers';
 
 // Animated counter component for numbers
 const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
@@ -65,7 +66,10 @@ const DashboardPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState("Analyzing learning patterns...");
 
-  // Data State
+  // ============================================================
+  // BUG 1 FIX: Read goal from neurolearn_goal_data FIRST (single source of truth)
+  // neurolearn_user_profile may contain stale/demo data — use as last resort
+  // ============================================================
   const [dashboardData, setDashboardData] = useState(() => {
     console.log("[DashboardPage] Reading local storage data...");
     
@@ -74,12 +78,13 @@ const DashboardPage = () => {
     let hasError = false;
 
     try {
-      const savedGoal = localStorage.getItem('neurolearn_user_profile') || localStorage.getItem('neurolearn_goal_data');
+      // PRIORITY: neurolearn_goal_data first (set by GoalSetupPage), then neurolearn_user_profile as fallback
+      const savedGoal = localStorage.getItem('neurolearn_goal_data') || localStorage.getItem('neurolearn_user_profile');
       if (savedGoal) {
         goal = JSON.parse(savedGoal);
       }
     } catch (e) {
-      console.error("[DashboardPage] Failed to parse neurolearn_user_profile:", e);
+      console.error("[DashboardPage] Failed to parse goal data:", e);
       hasError = true;
     }
 
@@ -89,11 +94,14 @@ const DashboardPage = () => {
         assessment = JSON.parse(savedAssessment);
       }
     } catch (e) {
-      console.error("[DashboardPage] Failed to parse neurolearn_assessment_results:", e);
+      console.error("[DashboardPage] Failed to parse assessment data:", e);
       hasError = true;
     }
 
     const isDataMissing = !goal || !assessment;
+
+    console.log("[DashboardPage] Goal data:", goal);
+    console.log("[DashboardPage] Assessment data:", assessment);
 
     return {
       goal,
@@ -133,12 +141,53 @@ const DashboardPage = () => {
   // Safe destructuring of data
   const { goal, assessment, isInvalid } = dashboardData;
 
-  const [showPopup, setShowPopup] = useState(true);
+  // ============================================================
+  // BUG 2 FIX: Read active journey and use its subject as source of truth
+  // ============================================================
+  const activeJourney = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('neurolearn_active_subject_journey') ||
+                  localStorage.getItem('activeSubjectJourney') ||
+                  localStorage.getItem('neurolearn_active_journey');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        console.log("[DashboardPage] Active journey:", parsed);
+        return parsed;
+      }
+    } catch (e) {
+      console.error("[DashboardPage] Failed to parse active journey:", e);
+    }
+    return null;
+  }, []);
 
+  const [showPopup, setShowPopup] = useState(() => {
+    return !sessionStorage.getItem('neurolearn_dashboard_popup_seen');
+  });
+
+  const handleDismissPopup = () => {
+    setShowPopup(false);
+    sessionStorage.setItem('neurolearn_dashboard_popup_seen', 'true');
+  };
+
+  // BUG 1 FIX: Always use name from neurolearn_goal_data (never demo/hardcoded)
   const studentName = goal?.name || 'Learner';
   const examGoal = goal?.goal || goal?.examGoal || 'General Study';
   const examDate = goal?.examDate || '';
-  const selectedSubjects = goal?.subjects || [];
+
+  // BUG 2 FIX: Merge subjects from goal AND active journey
+  const selectedSubjects = useMemo(() => {
+    const goalSubjects = goal?.subjects || [];
+    // If active journey has a subject, ensure it's included and shown first
+    if (activeJourney?.subject) {
+      const journeySubject = activeJourney.subject;
+      if (!goalSubjects.includes(journeySubject)) {
+        return [journeySubject, ...goalSubjects];
+      }
+      // Move journey subject to front
+      return [journeySubject, ...goalSubjects.filter(s => s !== journeySubject)];
+    }
+    return goalSubjects;
+  }, [goal, activeJourney]);
 
   const overallScore = assessment?.percentage ?? (assessment?.score !== undefined ? Math.round((assessment.score / 10) * 100) : 0);
   const learningLevel = assessment?.currentLevel || 'Beginner';
@@ -152,17 +201,44 @@ const DashboardPage = () => {
   const subjectScores = { [assessment?.subject || 'General Learning']: overallScore };
 
   // ============================================================
-  // ROADMAP-INTEGRATED TIMETABLE: Read active journey + roadmap
+  // BUG 7: Developer-safe reset helper for testing
   // ============================================================
-  const todayStudy = useMemo(() => {
+  useEffect(() => {
+    window.resetNeurolearnSession = function () {
+      localStorage.removeItem('activeSubjectJourney');
+      localStorage.removeItem('neurolearn_active_subject_journey');
+      localStorage.removeItem('neurolearn_active_journey');
+      localStorage.removeItem('neurolearn_current_learning_task');
+      localStorage.removeItem('neurolearn_learning_sessions');
+      localStorage.removeItem('neurolearn_subject_timetables');
+      localStorage.removeItem('neurolearn_subject_progress');
+      localStorage.removeItem('neurolearn_user_profile');
+      console.log('[resetNeurolearnSession] Session data cleared. Reloading...');
+      location.reload();
+    };
+    return () => { delete window.resetNeurolearnSession; };
+  }, []);
+
+  // ============================================================
+  // BUG 4 & 5 FIX: Use state + useEffect instead of useMemo([])
+  // This re-reads fresh localStorage on EVERY mount/navigation return
+  // ============================================================
+  const [todayStudy, setTodayStudy] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+
+  // Function to read fresh data from localStorage
+  const refreshTodayStudy = () => {
     try {
-      // 1. Read the active subject journey saved by LearnerProfilePage
+      // 1. Read the active subject journey
       const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') || 
                          localStorage.getItem('activeSubjectJourney') || 
                          localStorage.getItem('neurolearn_active_journey');
-      if (!journeyRaw) return null;
+      if (!journeyRaw) { setTodayStudy(null); setActiveSession(null); return; }
       const journey = JSON.parse(journeyRaw);
-      if (!journey || !journey.subject) return null;
+      if (!journey || !journey.subject) { setTodayStudy(null); setActiveSession(null); return; }
+
+      console.log("[DashboardPage] Active journey:", journey);
+      console.log("[DashboardPage] Dashboard subject:", journey.subject);
 
       // 2. Read the cached roadmaps
       const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
@@ -191,81 +267,138 @@ const DashboardPage = () => {
         );
       }
       if (!matchingRoadmap || !Array.isArray(matchingRoadmap.topics) || matchingRoadmap.topics.length === 0) {
-        return null;
+        setTodayStudy(null); setActiveSession(null); return;
       }
 
       const topics = matchingRoadmap.topics;
 
-      // 4. Find the first incomplete topic
-      const incompleteIdx = topics.findIndex(t => !t.completed && !t.isCompleted && t.status !== 'completed');
-      const currentIdx = incompleteIdx !== -1 ? incompleteIdx : 0;
+      // Use getCompletedTopics from neurolearn_subject_progress for accurate count & indices
+      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
+      const completedIndices = completedList.map(t => t.topicIndex);
+
+      // Find first roadmap topic whose topicIndex is NOT in completedTopics list
+      const nextIncompleteIdx = topics.findIndex((t, idx) => {
+        const isSavedCompleted = completedIndices.includes(idx);
+        const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
+        return !isSavedCompleted && !isRoadmapCompleted;
+      });
+      const currentIdx = nextIncompleteIdx !== -1 ? nextIncompleteIdx : 0;
       const currentTopic = topics[currentIdx];
-      const completedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
+
+      console.log("[DashboardPage] Selected next incomplete topic:", currentTopic.title);
+
+      // Ensure the session is initialized fresh if it doesn't exist
+      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx, journey.recommendedStudyTime || 60);
 
       let topicProgressPercent = 0;
-      const sessionKey = `${journey.subject}__${matchingRoadmap.chapter || journey.chapter || 'General'}`;
+      let revisionScheduled = false;
+      let topicCompleted = false;
+      let spentSeconds = 0;
+      let remainingSeconds = (journey.recommendedStudyTime || 60) * 60;
+      let sessionAllocatedMinutes = journey.recommendedStudyTime || 60;
+
+      const sessionKey = buildTopicSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx);
+      console.log("[DashboardPage] Session key:", sessionKey);
+
+      let currentSession = null;
       try {
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
           const session = sessions[sessionKey];
           if (session) {
-            topicProgressPercent = session.topicProgressPercent || 0;
+            currentSession = session;
+            const { topicProgressPercent: calcProg } = calcTopicProgress(session);
+            topicProgressPercent = calcProg;
+            revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+            topicCompleted = !!session.topicCompleted;
+            spentSeconds = session.totalSecondsSpent || 0;
+            remainingSeconds = session.remainingSeconds ?? ((session.allocatedMinutes || 60) * 60);
+            sessionAllocatedMinutes = session.allocatedMinutes || 60;
           }
         }
       } catch (e) {}
 
-      let overallProgressPercent = Math.round(((completedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      console.log("[DashboardPage] Learning session:", currentSession);
+      console.log("[DashboardPage] Spent seconds:", spentSeconds, "Remaining:", remainingSeconds);
+
+      // Roadmap progress calculations
+      const roadmapCompletedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
+      const finalCompletedCount = Math.max(completedList.length, roadmapCompletedCount);
+
+      let overallProgressPercent = Math.round(((finalCompletedCount + (topicProgressPercent / 100)) / topics.length) * 100);
       if (overallProgressPercent > 100) overallProgressPercent = 100;
 
-      return {
+      setTodayStudy({
         subject: journey.subject,
         chapter: matchingRoadmap.chapter || journey.chapter || 'General',
         topicTitle: currentTopic.title || `Topic ${currentIdx + 1}`,
         topicIndex: currentIdx,
         totalTopics: topics.length,
-        completedTopics: completedCount,
+        completedTopics: finalCompletedCount,
         progressPercent: overallProgressPercent,
         topicProgressPercent,
+        revisionScheduled,
+        topicCompleted,
         estimatedMinutes: currentTopic.estimatedMinutes || currentTopic.estimatedTime || journey.recommendedStudyTime || 60,
         learningObjective: currentTopic.learningObjective || '',
         difficulty: currentTopic.difficulty || 'Medium',
-        allocatedTime: journey.recommendedStudyTime || 60
-      };
+        allocatedTime: sessionAllocatedMinutes,
+        spentSeconds,
+        remainingSeconds
+      });
+      setActiveSession(currentSession);
     } catch (e) {
       console.error('[DashboardPage] Error reading roadmap timetable:', e);
-      return null;
+      setTodayStudy(null);
+      setActiveSession(null);
     }
-  }, []);
+  };
 
-  const activeSession = useMemo(() => {
-    if (!todayStudy) return null;
-    const sessionKey = `${todayStudy.subject}__${todayStudy.chapter}`;
-    try {
-      const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
-      if (sessionsRaw) {
-        const sessions = JSON.parse(sessionsRaw);
-        return sessions[sessionKey];
+  // BUG 5 FIX: Read fresh data on mount AND when window regains focus (user returns from learning)
+  useEffect(() => {
+    refreshTodayStudy();
+
+    const handleFocus = () => {
+      console.log("[DashboardPage] Window focused — refreshing time data");
+      refreshTodayStudy();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("[DashboardPage] Page visible — refreshing time data");
+        refreshTodayStudy();
       }
-    } catch (e) {
-      console.error("Error reading session key for popup", e);
-    }
-    return null;
-  }, [todayStudy]);
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
 
   const popupMessage = useMemo(() => {
     if (!todayStudy) return "";
-    const spentMinutes = activeSession ? Math.floor(activeSession.totalSecondsSpent / 60) : 0;
-    const allocatedMinutes = activeSession ? activeSession.allocatedMinutes : (todayStudy.allocatedTime || 60);
-    const remainingMinutes = activeSession ? Math.ceil(activeSession.remainingSeconds / 60) : allocatedMinutes;
+    const subject = todayStudy.subject;
+    const topic = todayStudy.topicTitle;
 
-    if (!activeSession || activeSession.totalSecondsSpent === 0) {
-      return `You have ${allocatedMinutes} minutes planned for ${todayStudy.subject} today. Start with your current roadmap topic.`;
+    const spentSeconds = todayStudy.spentSeconds || 0;
+    const allocatedMinutes = todayStudy.allocatedTime || 60;
+    const remainingSeconds = todayStudy.remainingSeconds ?? (allocatedMinutes * 60);
+
+    if (activeSession) {
+      if (activeSession.needsRevision || activeSession.revisionScheduled) {
+        return `Your quiz score was low. Revision is scheduled. You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today.`;
+      }
+      if (activeSession.quizCompleted && activeSession.quizScore >= 70 && activeSession.topicCompleted) {
+        return `Great work! Your previous topic is completed. You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today. The next roadmap topic has been scheduled.`;
+      }
+      if (activeSession.remainingSeconds <= 0) {
+        return `You have completed today's allocated study time for ${subject}. Great work!`;
+      }
     }
-    if (activeSession.remainingSeconds <= 0) {
-      return `You have completed today’s allocated study time for ${todayStudy.subject}. Great work! You can revise or continue tomorrow.`;
-    }
-    return `You have studied ${spentMinutes} minutes out of ${allocatedMinutes} minutes for ${todayStudy.subject}. You still have ${remainingMinutes} minutes left today. You can continue your current roadmap topic.`;
+
+    return `You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today. You can continue studying ${subject}.`;
   }, [todayStudy, activeSession]);
 
   // Format Date for UI display
@@ -388,10 +521,15 @@ const DashboardPage = () => {
       return;
     }
 
+    let cleanTopic = topicVal;
+    if (topicVal.startsWith("Revise ")) {
+      cleanTopic = topicVal.substring(7);
+    }
+
     const taskPayload = {
       subject,
       chapter,
-      topic: topicVal,
+      topic: cleanTopic,
       currentTopicIndex: topicIdx,
       taskType: "Personalized Video",
       recommendedStudyTime: recTime,
@@ -430,10 +568,15 @@ const DashboardPage = () => {
       return;
     }
 
+    let cleanTopic = topicVal;
+    if (topicVal.startsWith("Revise ")) {
+      cleanTopic = topicVal.substring(7);
+    }
+
     const taskPayload = {
       subject,
       chapter,
-      topic: topicVal,
+      topic: cleanTopic,
       currentTopicIndex: topicIdx,
       taskType: type,
       recommendedStudyTime: recTime,
@@ -518,7 +661,7 @@ const DashboardPage = () => {
               </p>
             </div>
             <button 
-              onClick={() => setShowPopup(false)}
+              onClick={handleDismissPopup}
               style={{
                 background: 'none',
                 border: 'none',
@@ -579,15 +722,25 @@ const DashboardPage = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1.5rem', alignItems: 'start' }}>
               {/* Left: Topic Info */}
               <div>
-                <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.35rem' }}>Current Topic</span>
-                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.35rem', color: '#f8fafc', fontWeight: 700 }}>{todayStudy.topicTitle}</h3>
-                {todayStudy.learningObjective && (
+                <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.35rem' }}>
+                  {todayStudy.revisionScheduled ? 'Revision Task' : 'Current Topic'}
+                </span>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.35rem', color: '#f8fafc', fontWeight: 700 }}>
+                  {todayStudy.revisionScheduled ? `Revise ${todayStudy.topicTitle}` : (todayStudy.topicCompleted ? `Next Roadmap Topic: ${todayStudy.topicTitle}` : todayStudy.topicTitle)}
+                </h3>
+                {todayStudy.revisionScheduled ? (
+                  <p style={{ margin: '0 0 0.75rem 0', color: '#f87171', fontSize: '0.95rem', fontWeight: 600 }}>
+                    ⚠️ Reason: Low quiz score detected.
+                  </p>
+                ) : todayStudy.learningObjective && (
                   <p style={{ margin: '0 0 0.75rem 0', color: '#94a3b8', fontSize: '0.9rem', fontStyle: 'italic' }}>{todayStudy.learningObjective}</p>
                 )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
                   <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>📚 Chapter: <strong style={{ color: '#e2e8f0' }}>{todayStudy.chapter}</strong></span>
                   <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏱️ Estimated: <strong style={{ color: '#818cf8' }}>{todayStudy.estimatedMinutes} min</strong></span>
                   <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>🎯 Allocated: <strong style={{ color: '#34d399' }}>{todayStudy.allocatedTime} min</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏳ Spent: <strong style={{ color: '#fbbf24' }}>{formatStudyTime(todayStudy.spentSeconds)}</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏰ Remaining: <strong style={{ color: '#f87171' }}>{formatStudyTime(todayStudy.remainingSeconds)}</strong></span>
                   <span className={`badge badge-${todayStudy.difficulty.toLowerCase()}`} style={{ fontSize: '0.8rem' }}>{todayStudy.difficulty}</span>
                 </div>
 
@@ -615,24 +768,30 @@ const DashboardPage = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '140px' }}>
                 <button
                   className="action-card glass-card"
-                  onClick={() => handleStartTopicResource('Personalized Video')}
+                  onClick={() => handleStartTopicResource(todayStudy.revisionScheduled ? 'Personalized Video' : 'Personalized Video')}
                   style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>🎬 Video</span>
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>
+                    {todayStudy.revisionScheduled ? '📹 Rewatch Video' : '🎬 Video'}
+                  </span>
                 </button>
                 <button
                   className="action-card glass-card"
-                  onClick={() => handleStartTopicResource('AI Study Notes')}
+                  onClick={() => handleStartTopicResource(todayStudy.revisionScheduled ? 'AI Notes' : 'AI Study Notes')}
                   style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>📝 Notes</span>
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>
+                    {todayStudy.revisionScheduled ? '📝 Review Notes' : '📝 Notes'}
+                  </span>
                 </button>
                 <button
                   className="action-card glass-card"
-                  onClick={() => handleStartTopicResource('Adaptive Quiz')}
+                  onClick={() => handleStartTopicResource(todayStudy.revisionScheduled ? 'Adaptive Quiz' : 'Adaptive Quiz')}
                   style={{ padding: '0.6rem 1rem', textAlign: 'left', cursor: 'pointer' }}
                 >
-                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>🧠 Quiz</span>
+                  <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>
+                    {todayStudy.revisionScheduled ? '🧠 Retake Quiz' : '🧠 Quiz'}
+                  </span>
                 </button>
               </div>
             </div>

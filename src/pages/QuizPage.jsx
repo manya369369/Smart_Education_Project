@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/QuizPage.css';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics } from '../utils/sessionHelpers';
 
 // Curated question pools for popular topics
 const CURATED_POOLS = {
@@ -356,7 +357,7 @@ const safeParseAllocatedMinutes = (value) => {
 };
 
 const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
-  const sessionKey = `${subject}__${chapter}`;
+  const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
   const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
   let sessions = {};
   if (sessionsRaw) {
@@ -397,14 +398,9 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
     s[k] = fields[k];
   });
 
-  let progress = 0;
-  if (s.videoCompleted) progress += 30;
-  if (s.notesCompleted) progress += 30;
-  if (s.quizCompleted || s.quizAttempted) progress += 20;
-  if (s.quizScore >= 70) progress += 20;
-
-  s.topicProgressPercent = progress;
-  s.topicCompleted = progress === 100;
+  const { topicProgressPercent: calcProgress, topicCompleted: calcCompleted } = calcTopicProgress(s);
+  s.topicProgressPercent = calcProgress;
+  s.topicCompleted = calcCompleted;
   s.lastUpdated = new Date().toISOString();
 
   if (s.topicCompleted) {
@@ -443,6 +439,21 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
   }
 
   localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+
+  // If topic just completed, save to permanent completed topics
+  if (s.topicCompleted) {
+    saveCompletedTopic(subject, chapter, {
+      topic: topic,
+      topicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+      completedAt: new Date().toISOString(),
+      quizScore: s.quizScore,
+      videoSeconds: s.videoSeconds || 0,
+      notesSeconds: s.notesSeconds || 0,
+      quizSeconds: s.quizSeconds || 0,
+      totalSecondsSpent: s.totalSecondsSpent || 0
+    });
+  }
+
   return s;
 };
 
@@ -521,15 +532,75 @@ const QuizPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState({});
   const [errorMessage, setErrorMessage] = useState('');
-  const [quizElapsedSeconds, setQuizElapsedSeconds] = useState(0);
+  // Timestamp-based actual time tracking for Quiz
+  const quizStartRef = useRef(Date.now());
 
-  // Time spent tracking effect for quiz
+  const flushQuizTime = () => {
+    if (topicInfo.hasNoData) return;
+    const now = Date.now();
+    const elapsedMs = now - quizStartRef.current;
+    if (elapsedMs < 1000) return;
+
+    const secondsAdded = Math.floor(elapsedMs / 1000);
+    quizStartRef.current += secondsAdded * 1000;
+
+    const task = topicInfo.task;
+    const subj = task?.subject || topicInfo.subject || "General Learning";
+    const chap = task?.chapter || "General Foundations";
+    const topicName = topicInfo.topic;
+    const topicIdx = task?.currentTopicIndex || 0;
+    const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+
+    const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+    let sessions = {};
+    if (sessionsRaw) {
+      try {
+        sessions = JSON.parse(sessionsRaw) || {};
+      } catch (e) {
+        sessions = {};
+      }
+    }
+
+    const session = sessions[sessionKey];
+    if (session) {
+      const oldSession = JSON.parse(JSON.stringify(session));
+      session.quizSeconds = (session.quizSeconds || 0) + secondsAdded;
+      session.totalSecondsSpent = (session.videoSeconds || 0) + (session.notesSeconds || 0) + (session.quizSeconds || 0);
+      session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
+      session.lastUpdated = new Date().toISOString();
+
+      const { topicProgressPercent: calcProg, topicCompleted: calcComp } = calcTopicProgress(session);
+      session.topicProgressPercent = calcProg;
+      session.topicCompleted = calcComp;
+
+      sessions[sessionKey] = session;
+      localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+
+      console.log("Session key:", sessionKey);
+      console.log("Session before update:", oldSession);
+      console.log("Time added:", secondsAdded);
+      console.log("Session after update:", session);
+    }
+  };
+
   useEffect(() => {
     if (topicInfo.hasNoData) return;
+    quizStartRef.current = Date.now();
+
+    const handleBeforeUnload = () => {
+      flushQuizTime();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     const interval = setInterval(() => {
-      setQuizElapsedSeconds(prev => prev + 1);
+      flushQuizTime();
     }, 1000);
-    return () => clearInterval(interval);
+
+    return () => {
+      flushQuizTime();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      clearInterval(interval);
+    };
   }, [topicInfo]);
 
   // Fetch quiz questions from backend
@@ -781,6 +852,9 @@ const QuizPage = () => {
 
     // Update learning session time tracking data
     try {
+      // First, flush any unsaved quiz time spent
+      flushQuizTime();
+
       let activeSub = '';
       try {
         const savedAssessment = localStorage.getItem('neurolearn_assessment_results') || localStorage.getItem('neurolearn_assessment_result');
@@ -794,40 +868,138 @@ const QuizPage = () => {
       const subj = task?.subject || activeSub || "General Learning";
       const chap = task?.chapter || "General Foundations";
       const allocMins = safeParseAllocatedMinutes(task?.time || task?.recommendedStudyTime);
-
+      
       const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
       let sessions = {};
       if (sessionsRaw) {
-        sessions = JSON.parse(sessionsRaw);
+        try {
+          sessions = JSON.parse(sessionsRaw) || {};
+        } catch (e) {
+          sessions = {};
+        }
       }
 
-      // Check if session exists to retrieve original quizSeconds before updating
-      let existingQuizSeconds = 0;
-      const sessionKey = `${subj}__${chap}`;
-      if (sessions[sessionKey]) {
-        existingQuizSeconds = sessions[sessionKey].quizSeconds || 0;
-      }
+      const sessionKey = buildTopicSessionKey(subj, chap, topicInfo.topic, task?.currentTopicIndex);
+      const session = sessions[sessionKey] || {};
+
+      const isGoodScore = percentage >= 70;
 
       updateSessionCompletion(subj, chap, topicInfo.topic, task?.currentTopicIndex, allocMins, {
-        quizSeconds: existingQuizSeconds + quizElapsedSeconds,
         quizAttempted: true,
         quizCompleted: true,
         quizCompletedAt: new Date().toISOString(),
         quizScore: percentage,
         correctAnswers: finalScore,
         wrongAnswers: totalQuestions - finalScore,
-        accuracy: percentage
+        accuracy: percentage,
+        needsRevision: !isGoodScore,
+        revisionScheduled: !isGoodScore
       });
 
-      // Update seconds spent totals
-      const updatedSessions = JSON.parse(localStorage.getItem('neurolearn_learning_sessions'));
-      const session = updatedSessions[sessionKey];
-      session.totalSecondsSpent = session.videoSeconds + session.notesSeconds + session.quizSeconds;
-      session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
-      session.lastUpdated = new Date().toISOString();
+      // Re-read session that updateSessionCompletion already saved correctly
+      const updatedSessions = JSON.parse(localStorage.getItem('neurolearn_learning_sessions')) || {};
+      const updatedSession = updatedSessions[sessionKey] || {};
+      // Ensure time totals are current
+      updatedSession.totalSecondsSpent = (updatedSession.videoSeconds || 0) + (updatedSession.notesSeconds || 0) + (updatedSession.quizSeconds || 0);
+      updatedSession.remainingSeconds = Math.max(0, ((updatedSession.allocatedMinutes || 60) * 60) - updatedSession.totalSecondsSpent);
+      updatedSession.lastUpdated = new Date().toISOString();
+      updatedSessions[sessionKey] = updatedSession;
       localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(updatedSessions));
 
-      console.log("Updated quiz session data:", session);
+      // Resolve roadmap contexts
+      const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+      let allRoadmaps = [];
+      for (const key of roadmapKeys) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              allRoadmaps = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      let matchingRoadmap = allRoadmaps.find(
+        r => r.subject?.toLowerCase() === subj.toLowerCase() &&
+             r.chapter?.toLowerCase() === chap.toLowerCase()
+      );
+      if (!matchingRoadmap) {
+        matchingRoadmap = allRoadmaps.find(
+          r => r.subject?.toLowerCase() === subj.toLowerCase()
+        );
+      }
+
+      // Check both roadmap completion and subject progress completed topics
+      const completedList = getCompletedTopics(subj, chap);
+      const completedIndices = completedList.map(t => t.topicIndex);
+
+      let nextIncompleteTopic = "";
+      let nextIncompleteIdx = 0;
+      if (matchingRoadmap && Array.isArray(matchingRoadmap.topics)) {
+        const incomplete = matchingRoadmap.topics.find((t, idx) => {
+          const isSavedCompleted = completedIndices.includes(idx);
+          const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
+          return !isSavedCompleted && !isRoadmapCompleted;
+        });
+        if (incomplete) {
+          nextIncompleteTopic = incomplete.title;
+          nextIncompleteIdx = matchingRoadmap.topics.indexOf(incomplete);
+        }
+      }
+
+      // Maintain subject-wise timetable state
+      const timetablesRaw = localStorage.getItem('neurolearn_subject_timetables');
+      let timetables = {};
+      if (timetablesRaw) {
+        try { timetables = JSON.parse(timetablesRaw); } catch (e) {}
+      }
+
+      const timetableKey = `${subj}__${chap}`;
+      timetables[timetableKey] = {
+        activeTaskType: isGoodScore ? "nextTopic" : "revision",
+        currentTopic: isGoodScore ? (nextIncompleteTopic || topicInfo.topic) : topicInfo.topic,
+        currentTopicIndex: isGoodScore ? nextIncompleteIdx : (task?.currentTopicIndex || 0),
+        revisionTopic: isGoodScore ? "" : topicInfo.topic,
+        nextTopic: nextIncompleteTopic,
+        allocatedSeconds: (updatedSession.allocatedMinutes || 60) * 60,
+        totalSecondsSpent: updatedSession.totalSecondsSpent,
+        remainingSeconds: updatedSession.remainingSeconds,
+        quizScore: percentage,
+        needsRevision: !isGoodScore,
+        lastUpdated: new Date().toISOString()
+      };
+      localStorage.setItem('neurolearn_subject_timetables', JSON.stringify(timetables));
+
+      console.log("Selected next incomplete topic:", nextIncompleteTopic);
+
+      // If good score and next topic found, initialize a fresh session for it
+      if (isGoodScore && nextIncompleteTopic) {
+        initFreshTopicSession(subj, chap, nextIncompleteTopic, nextIncompleteIdx, updatedSession.allocatedMinutes || 60);
+        console.log("[QuizPage] Initialized fresh session for next topic:", nextIncompleteTopic);
+      }
+
+      // Update the active journey stored keys
+      const journeyKeys = ['neurolearn_active_subject_journey', 'activeSubjectJourney', 'neurolearn_active_journey'];
+      for (const key of journeyKeys) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.subject?.toLowerCase() === subj.toLowerCase()) {
+              if (isGoodScore && nextIncompleteTopic) {
+                parsed.currentTopic = { title: nextIncompleteTopic };
+                parsed.currentTopicIndex = nextIncompleteIdx;
+              }
+              localStorage.setItem(key, JSON.stringify(parsed));
+            }
+          }
+        } catch(e) {}
+      }
+
+      console.log("Updated quiz session and timetables data:", updatedSession, timetables[timetableKey]);
     } catch (e) {
       console.error("Error updating quiz session:", e);
     }

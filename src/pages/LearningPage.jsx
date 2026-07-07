@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/LearningPage.css';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic } from '../utils/sessionHelpers';
 
 // --- Dynamic Mock & Fallback Data Generators ---
 
@@ -419,7 +420,7 @@ const getSentences = (text) => {
 };
 
 const getOrCreateSession = (subject, chapter, topic, topicIndex, allocatedMinutes) => {
-  const sessionKey = `${subject}__${chapter}`;
+  const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
   const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
   let sessions = {};
   if (sessionsRaw) {
@@ -588,7 +589,9 @@ const LearningPage = () => {
         const parsed = JSON.parse(saved);
         const subj = parsed.subject || "General Learning";
         const chap = parsed.chapter || "General Foundations";
-        const sessionKey = `${subj}__${chap}`;
+        const topicName = parsed.topic || 'Unknown Topic';
+        const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
+        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
@@ -606,7 +609,9 @@ const LearningPage = () => {
         const parsed = JSON.parse(saved);
         const subj = parsed.subject || "General Learning";
         const chap = parsed.chapter || "General Foundations";
-        const sessionKey = `${subj}__${chap}`;
+        const topicName = parsed.topic || 'Unknown Topic';
+        const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
+        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
@@ -619,6 +624,27 @@ const LearningPage = () => {
 
   const spokenCharIndexRef = useRef(0);
   const timerRef = useRef(null);
+
+  // Topic progress state (synced from session storage via updateSessionCompletion)
+  const [topicProgressPercent, setTopicProgressPercent] = useState(() => {
+    try {
+      const saved = localStorage.getItem('neurolearn_current_learning_task');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const subj = parsed.subject || "General Learning";
+        const chap = parsed.chapter || "General Foundations";
+        const topicName = parsed.topic || 'Unknown Topic';
+        const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
+        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        if (sessionsRaw) {
+          const sessions = JSON.parse(sessionsRaw);
+          return sessions[sessionKey]?.topicProgressPercent || 0;
+        }
+      }
+    } catch (e) {}
+    return 0;
+  });
 
   // Calculate Speech offsets and total duration
   const totalDuration = useMemo(() => {
@@ -653,7 +679,7 @@ const LearningPage = () => {
   }, [tutorChat]);
 
   const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
-    const sessionKey = `${subject}__${chapter}`;
+    const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
     const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
     let sessions = {};
     if (sessionsRaw) {
@@ -698,14 +724,9 @@ const LearningPage = () => {
       s[k] = fields[k];
     });
 
-    let progress = 0;
-    if (s.videoCompleted) progress += 30;
-    if (s.notesCompleted) progress += 30;
-    if (s.quizCompleted || s.quizAttempted) progress += 20;
-    if (s.quizScore >= 70) progress += 20;
-
-    s.topicProgressPercent = progress;
-    s.topicCompleted = progress === 100;
+    const { topicProgressPercent: calcProgress, topicCompleted: calcCompleted } = calcTopicProgress(s);
+    s.topicProgressPercent = calcProgress;
+    s.topicCompleted = calcCompleted;
     s.lastUpdated = new Date().toISOString();
 
     if (s.topicCompleted) {
@@ -744,6 +765,24 @@ const LearningPage = () => {
     }
 
     localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+
+    // If topic just completed, save to permanent completed topics
+    if (s.topicCompleted) {
+      saveCompletedTopic(subject, chapter, {
+        topic: topic,
+        topicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+        completedAt: new Date().toISOString(),
+        quizScore: s.quizScore,
+        videoSeconds: s.videoSeconds || 0,
+        notesSeconds: s.notesSeconds || 0,
+        quizSeconds: s.quizSeconds || 0,
+        totalSecondsSpent: s.totalSecondsSpent || 0
+      });
+    }
+
+    // Update React state for progress bar
+    setTopicProgressPercent(s.topicProgressPercent);
+
     return s;
   };
 
@@ -802,45 +841,116 @@ const LearningPage = () => {
     }
   }, [notesCompleted, topic, currentTask]);
 
-  // Learning Time Tracking Interval Effect
+  // Timestamp-based actual time tracking
+  const sessionStartRef = useRef(null);
+  const activeTabRef = useRef(activeTab);
+
+  // Keep activeTabRef in sync
   useEffect(() => {
-    if (!topic) return;
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const flushTime = () => {
+    if (!sessionStartRef.current || !topic) return;
+    const now = Date.now();
+    const elapsedMs = now - sessionStartRef.current;
+    if (elapsedMs < 1000) return; // Less than 1 second, do nothing yet
+
+    const secondsAdded = Math.floor(elapsedMs / 1000);
+    sessionStartRef.current += secondsAdded * 1000; // retain remainder
 
     const subj = currentTask.subject || "General Learning";
     const chap = currentTask.chapter || "General Foundations";
-    const allocMins = safeParseAllocatedMinutes(currentTask.time || currentTask.recommendedStudyTime);
-    const sessionKey = getOrCreateSession(subj, chap, topic, currentTask.currentTopicIndex, allocMins);
+    const topicIdx = currentTask.currentTopicIndex || 0;
+    const sessionKey = buildTopicSessionKey(subj, chap, topic, topicIdx);
 
-    const interval = setInterval(() => {
-      const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
-      if (!sessionsRaw) return;
+    const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+    let sessions = {};
+    if (sessionsRaw) {
       try {
-        const sessions = JSON.parse(sessionsRaw);
-        const session = sessions[sessionKey];
-        if (!session) return;
-
-        let changed = false;
-        if (activeTab === 'video' && isPlaying) {
-          session.videoSeconds += 1;
-          changed = true;
-        } else if (activeTab === 'notes') {
-          session.notesSeconds += 1;
-          changed = true;
-        }
-
-        if (changed) {
-          session.totalSecondsSpent = session.videoSeconds + session.notesSeconds + session.quizSeconds;
-          session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
-          session.lastUpdated = new Date().toISOString();
-          localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
-        }
+        sessions = JSON.parse(sessionsRaw) || {};
       } catch (e) {
-        console.error("Error updating session time", e);
+        sessions = {};
       }
+    }
+
+    const session = sessions[sessionKey];
+    if (session) {
+      const oldSession = JSON.parse(JSON.stringify(session));
+      if (activeTabRef.current === 'video') {
+        session.videoSeconds = (session.videoSeconds || 0) + secondsAdded;
+      } else if (activeTabRef.current === 'notes') {
+        session.notesSeconds = (session.notesSeconds || 0) + secondsAdded;
+      }
+
+      session.totalSecondsSpent = (session.videoSeconds || 0) + (session.notesSeconds || 0) + (session.quizSeconds || 0);
+      session.remainingSeconds = Math.max(0, (session.allocatedMinutes * 60) - session.totalSecondsSpent);
+      session.lastUpdated = new Date().toISOString();
+
+      const { topicProgressPercent: calcProg, topicCompleted: calcComp } = calcTopicProgress(session);
+      session.topicProgressPercent = calcProg;
+      session.topicCompleted = calcComp;
+
+      sessions[sessionKey] = session;
+      localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+
+      console.log("Session key:", sessionKey);
+      console.log("Session before update:", oldSession);
+      console.log("Time added:", secondsAdded);
+      console.log("Session after update:", session);
+
+      // Save to completed topics if completed
+      if (session.topicCompleted) {
+        saveCompletedTopic(subj, chap, {
+          topic: topic,
+          topicIndex: topicIdx,
+          completedAt: new Date().toISOString(),
+          quizScore: session.quizScore,
+          videoSeconds: session.videoSeconds || 0,
+          notesSeconds: session.notesSeconds || 0,
+          quizSeconds: session.quizSeconds || 0,
+          totalSecondsSpent: session.totalSecondsSpent || 0
+        });
+      }
+
+      // Sync progress state immediately
+      setTopicProgressPercent(session.topicProgressPercent);
+    }
+  };
+
+  // Whenever tab changes, flush old tab time first
+  useEffect(() => {
+    flushTime();
+    sessionStartRef.current = Date.now();
+  }, [activeTab]);
+
+  // Handle unmount, beforeunload, and background interval flushes
+  useEffect(() => {
+    if (!topic) return;
+    
+    const subj = currentTask.subject || "General Learning";
+    const chap = currentTask.chapter || "General Foundations";
+    const allocMins = safeParseAllocatedMinutes(currentTask.time || currentTask.recommendedStudyTime);
+    getOrCreateSession(subj, chap, topic, currentTask.currentTopicIndex, allocMins);
+
+    sessionStartRef.current = Date.now();
+
+    const handleBeforeUnload = () => {
+      flushTime();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Save time to storage in background every 1s so it updates in real time
+    const interval = setInterval(() => {
+      flushTime();
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [activeTab, isPlaying, topic, currentTask]);
+    return () => {
+      flushTime();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      clearInterval(interval);
+    };
+  }, [topic, currentTask]);
 
   // Load video scenes on mount
   useEffect(() => {
@@ -1342,6 +1452,16 @@ const LearningPage = () => {
           </div>
           <h1 className="active-topic-title">Active Topic: {topic}</h1>
           <p className="active-task-reason">💡 Reason: {reason}</p>
+          {/* Topic Progress Bar */}
+          <div style={{ marginTop: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Topic Progress</span>
+              <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>{topicProgressPercent}%</span>
+            </div>
+            <div className="progress-track" style={{ height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' }}>
+              <div style={{ width: `${topicProgressPercent}%`, height: '100%', borderRadius: '3px', background: topicProgressPercent === 100 ? '#34d399' : '#818cf8', transition: 'width 0.4s ease' }}></div>
+            </div>
+          </div>
         </header>
 
         {/* IF ADAPTIVE QUIZ TASK TYPE */}
