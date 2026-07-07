@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/StudyPlanPage.css';
-import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, initFreshTopicSession, getSubjectProgress, resolveSessionKey, resolveClassAndSemester, createRoadmapKey } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, initFreshTopicSession, getSubjectProgress, resolveSessionKey, resolveClassAndSemester, createRoadmapKey, getApiUrl } from '../utils/sessionHelpers';
 
 const StudyPlanPage = () => {
   const navigate = useNavigate();
@@ -761,7 +761,7 @@ const StudyPlanPage = () => {
       const subject = assessmentResult.primarySubject || goalData.subjects?.[0] || 'General Learning';
       const weakTopics = assessmentResult.weakTopics || [subject];
 
-      const response = await fetch('/api/generate-study-plan', {
+      const response = await fetch(getApiUrl('/api/generate-study-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

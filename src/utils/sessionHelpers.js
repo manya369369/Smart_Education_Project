@@ -732,3 +732,9 @@ export function formatDashboardTime(totalSeconds) {
   }
   return `${minutes} min ${seconds} sec`;
 }
+
+export const getApiUrl = (path) => {
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const apiBase = import.meta.env.VITE_API_URL || (isLocal ? '' : 'https://smart-education-project.onrender.com');
+  return `${apiBase}${path}`;
+};

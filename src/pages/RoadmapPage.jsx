@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/RoadmapPage.css';
-import { createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
+import { createRoadmapKey, resolveClassAndSemester, getApiUrl } from '../utils/sessionHelpers';
 
 const RoadmapPage = () => {
   const navigate = useNavigate();
@@ -191,7 +191,7 @@ const RoadmapPage = () => {
           } else {
             console.log("CALLING GEMINI ROADMAP GENERATION");
             // Fetch from backend
-            const res = await fetch('/api/generate-roadmap', {
+            const res = await fetch(getApiUrl('/api/generate-roadmap'), {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/QuizPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics, syncSubjectProgress, resolveSessionKey, incrementTopicAttempt, getTopicAttemptId, createRoadmapKey, resolveClassAndSemester, incrementStudyTime } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics, syncSubjectProgress, resolveSessionKey, incrementTopicAttempt, getTopicAttemptId, createRoadmapKey, resolveClassAndSemester, incrementStudyTime, getApiUrl } from '../utils/sessionHelpers';
 
 // Curated question pools for popular topics
 const CURATED_POOLS = {
@@ -754,7 +754,7 @@ const QuizPage = () => {
           }
         } catch (e) {}
 
-        const response = await fetch('/api/generate-quiz', {
+        const response = await fetch(getApiUrl('/api/generate-quiz'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

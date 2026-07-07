@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../utils/sessionHelpers';
 import '../styles/AssessmentPage.css';
 
 const normalizeSelectedSubjects = (goalData, setupData) => {
@@ -252,7 +253,7 @@ const AssessmentPage = () => {
 
     try {
       const qCount = 10;
-      const response = await fetch('/api/generate-assessment', {
+      const response = await fetch(getApiUrl('/api/generate-assessment'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

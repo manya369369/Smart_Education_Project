@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/LearningPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, syncSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, incrementStudyTime } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, syncSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, incrementStudyTime, getApiUrl } from '../utils/sessionHelpers';
 
 // --- Dynamic Mock & Fallback Data Generators ---
 
@@ -1122,7 +1122,7 @@ const LearningPage = () => {
       } catch (e) {}
 
       try {
-        const response = await fetch('/api/generate-video-script', {
+        const response = await fetch(getApiUrl('/api/generate-video-script'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic, subject })
@@ -1259,7 +1259,7 @@ const LearningPage = () => {
     }
 
     try {
-      const response = await fetch('/api/generate-notes', {
+      const response = await fetch(getApiUrl('/api/generate-notes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1332,7 +1332,7 @@ const LearningPage = () => {
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(getApiUrl('/api/chat'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
