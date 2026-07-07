@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/RoadmapPage.css';
+import { createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
 
 const RoadmapPage = () => {
   const navigate = useNavigate();
@@ -60,31 +61,86 @@ const RoadmapPage = () => {
       setSetupData(setup);
       setClassOrSemester(cos);
 
-      // Check if roadmaps are already cached
+      if (!setup || !setup.subjects || setup.subjects.length === 0) {
+        console.error("[RoadmapPage] Missing subjects config for roadmap generation.");
+        navigate('/learning-mode-setup');
+        return;
+      }
+
+      // Check if roadmaps are already cached in neurolearn_roadmaps_by_key
+      try {
+        const roadmapsRaw = localStorage.getItem('neurolearn_roadmaps_by_key');
+        if (roadmapsRaw) {
+          const roadmapsMap = JSON.parse(roadmapsRaw);
+          const allExist = setup.subjects.every(item => {
+            const resolved = resolveClassAndSemester(setup.studentType || 'College Student', cos);
+            const studentType = setup.studentType || 'College Student';
+            const classLevel = resolved.classLevel;
+            const semester = resolved.semester;
+            const subject = item.subject;
+            const chapter = item.chapter;
+            const examGoal = goal?.examGoal || 'General Study';
+
+            const rKey = createRoadmapKey({
+              studentType,
+              classLevel,
+              semester,
+              subject,
+              chapter,
+              examGoal
+            });
+            const existingRoadmap = roadmapsMap[rKey];
+
+            console.log("ROADMAP INPUT:", {
+              studentType,
+              classLevel,
+              semester,
+              subject,
+              chapter,
+              examGoal
+            });
+            console.log("ROADMAP KEY:", rKey);
+            console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
+            console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+            console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
+
+            if (existingRoadmap) {
+              console.log("REUSING EXISTING ROADMAP:", rKey);
+            }
+            return !!existingRoadmap;
+          });
+          if (allExist) {
+            const mapped = setup.subjects.map(item => {
+              const resolved = resolveClassAndSemester(setup.studentType || 'College Student', cos);
+              const rKey = createRoadmapKey({
+                studentType: setup.studentType || 'College Student',
+                classLevel: resolved.classLevel,
+                semester: resolved.semester,
+                subject: item.subject,
+                chapter: item.chapter,
+                examGoal: goal?.examGoal || 'General Study'
+              });
+              return roadmapsMap[rKey];
+            });
+            localStorage.setItem('roadmaps', JSON.stringify(mapped));
+            setRoadmaps(mapped);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Cached roadmaps parse failure in neurolearn_roadmaps_by_key, checking standard cache...", e);
+      }
+
+      // Fallback check standard roadmaps array cache
       try {
         const cachedRoadmaps = localStorage.getItem('roadmaps');
         if (cachedRoadmaps) {
           const parsed = JSON.parse(cachedRoadmaps);
           if (parsed && parsed.length > 0) {
-            // Verify cache matches current setup and is not generic
-            const isCacheGeneric = parsed.some(r => {
-              const genericWords = ['introduction', 'basics', 'fundamentals', 'core', 'foundations', 'practical application', 'advanced concepts', 'overview', 'general', 'key concepts'];
-              const topics = r.topics || [];
-              if (topics.length < 6) return true;
-              let genericCount = 0;
-              topics.forEach(t => {
-                const title = (t.title || '').toLowerCase();
-                if (genericWords.some(word => title.includes(word))) {
-                  genericCount++;
-                }
-              });
-              return (genericCount / topics.length) > 0.3;
-            });
-
             const matchesSetup = setup && setup.subjects && 
               setup.subjects.every(s => parsed.some(r => r.subject === s.subject && r.chapter === s.chapter));
-            
-            if (matchesSetup && !isCacheGeneric) {
+            if (matchesSetup) {
               console.log("[RoadmapPage] Loading cached roadmaps from localStorage.");
               setRoadmaps(parsed);
               setIsLoading(false);
@@ -92,62 +148,148 @@ const RoadmapPage = () => {
             }
           }
         }
-      } catch (e) {
-        console.warn("Cached roadmaps parse failure, regenerating...", e);
-      }
+      } catch (e) {}
 
-      if (!setup || !setup.subjects || setup.subjects.length === 0) {
-        console.error("[RoadmapPage] Missing subjects config for roadmap generation.");
-        navigate('/learning-mode-setup');
-        return;
-      }
-
-      // 2. Fetch roadmaps from backend API
+      // 2. Fetch roadmaps from backend API or load from cache
       try {
-        const fetchPromises = setup.subjects.map(item => {
-          return fetch('/api/generate-roadmap', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              subject: item.subject,
-              chapter: item.chapter,
-              studentType: setup.studentType || 'College Student',
-              classOrSemester: cos,
-              examGoal: goal?.examGoal || 'General Study',
-              studyTime: goal?.studyTime || '2 hours',
-              learningMode: setup.learningMode || 'Focus Mode'
-            })
-          }).then(res => {
-            if (!res.ok) throw new Error("Roadmap request failed");
-            return res.json();
+        const roadmapsRaw = localStorage.getItem('neurolearn_roadmaps_by_key') || '{}';
+        let roadmapsMap = {};
+        try { roadmapsMap = JSON.parse(roadmapsRaw); } catch(e) {}
+
+        const results = [];
+        for (let i = 0; i < setup.subjects.length; i++) {
+          const item = setup.subjects[i];
+          const resolved = resolveClassAndSemester(setup.studentType || 'College Student', cos);
+          const studentType = setup.studentType || 'College Student';
+          const classLevel = resolved.classLevel;
+          const semester = resolved.semester;
+          const subject = item.subject;
+          const chapter = item.chapter;
+          const examGoal = goal?.examGoal || 'General Study';
+
+          const roadmapKey = createRoadmapKey({
+            studentType,
+            classLevel,
+            semester,
+            subject,
+            chapter,
+            examGoal
           });
-        });
+          
+          const existingRoadmap = roadmapsMap[roadmapKey];
+          console.log("ROADMAP INPUT:", {
+            studentType,
+            classLevel,
+            semester,
+            subject,
+            chapter,
+            examGoal
+          });
+          console.log("ROADMAP KEY:", roadmapKey);
+          console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
+          console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+          console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
+          
+          if (existingRoadmap) {
+            console.log("REUSING EXISTING ROADMAP:", roadmapKey);
+            results.push(existingRoadmap);
+          } else {
+            console.log("CALLING GEMINI ROADMAP GENERATION");
+            // Fetch from backend
+            const res = await fetch('/api/generate-roadmap', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                subject: item.subject,
+                chapter: item.chapter,
+                studentType: setup.studentType || 'College Student',
+                classOrSemester: cos,
+                examGoal: goal?.examGoal || 'General Study',
+                studyTime: goal?.studyTime || '2 hours',
+                learningMode: setup.learningMode || 'Focus Mode'
+              })
+            }).then(r => {
+              if (!r.ok) throw new Error("Roadmap request failed");
+              return r.json();
+            });
 
-        const results = await Promise.all(fetchPromises);
-        console.log("[RoadmapPage] Roadmap generation results:", results);
+            const roadmapObj = {
+              roadmapKey,
+              subject: res.subject || item.subject,
+              chapter: res.chapter || item.chapter,
+              studentType: setup.studentType || 'College Student',
+              classLevel: resolved.classLevel,
+              semester: resolved.semester,
+              examGoal: goal?.examGoal || 'General Study',
+              estimatedHours: res.estimatedHours || 4,
+              topics: res.topics || [],
+              createdAt: new Date().toISOString()
+            };
 
-        const mappedRoadmaps = results.map((res, index) => ({
-          subject: res.subject || setup.subjects[index].subject,
-          chapter: res.chapter || setup.subjects[index].chapter,
-          studentType: setup.studentType || 'College Student',
-          classOrSemester: cos,
-          estimatedHours: res.estimatedHours || 4,
-          topics: res.topics || []
-        }));
+            roadmapsMap[roadmapKey] = roadmapObj;
+            localStorage.setItem('neurolearn_roadmaps_by_key', JSON.stringify(roadmapsMap));
+            results.push(roadmapObj);
+          }
+        }
 
-        localStorage.setItem('roadmaps', JSON.stringify(mappedRoadmaps));
-        setRoadmaps(mappedRoadmaps);
+        localStorage.setItem('roadmaps', JSON.stringify(results));
+        setRoadmaps(results);
       } catch (err) {
         console.error("[RoadmapPage] API failure, using fallback system", err);
         // Fallback roadmap mapping locally
+        const roadmapsRaw = localStorage.getItem('neurolearn_roadmaps_by_key') || '{}';
+        let roadmapsMap = {};
+        try { roadmapsMap = JSON.parse(roadmapsRaw); } catch(e) {}
+
         const fallbackResults = setup.subjects.map(item => {
-          return {
+          const resolved = resolveClassAndSemester(setup.studentType || 'College Student', cos);
+          const studentType = setup.studentType || 'College Student';
+          const classLevel = resolved.classLevel;
+          const semester = resolved.semester;
+          const subject = item.subject;
+          const chapter = item.chapter;
+          const examGoal = goal?.examGoal || 'General Study';
+
+          const roadmapKey = createRoadmapKey({
+            studentType,
+            classLevel,
+            semester,
+            subject,
+            chapter,
+            examGoal
+          });
+          
+          const existingRoadmap = roadmapsMap[roadmapKey];
+          console.log("ROADMAP INPUT:", {
+            studentType,
+            classLevel,
+            semester,
+            subject,
+            chapter,
+            examGoal
+          });
+          console.log("ROADMAP KEY:", roadmapKey);
+          console.log("ROADMAP STORE BEFORE:", localStorage.getItem("neurolearn_roadmaps_by_key"));
+          console.log("EXISTING ROADMAP FOUND:", Boolean(existingRoadmap));
+          console.log("CALLING GEMINI ROADMAP:", !existingRoadmap);
+
+          if (existingRoadmap) {
+            console.log("REUSING EXISTING ROADMAP:", roadmapKey);
+            return existingRoadmap;
+          }
+
+          console.log("CALLING GEMINI ROADMAP GENERATION");
+
+          const fallbackRoadmap = {
+            roadmapKey,
             subject: item.subject,
             chapter: item.chapter,
             studentType: setup.studentType || 'College Student',
-            classOrSemester: cos,
+            classLevel: resolved.classLevel,
+            semester: resolved.semester,
+            examGoal: goal?.examGoal || 'General Study',
             estimatedHours: 3,
             topics: [
               {
@@ -161,20 +303,20 @@ const RoadmapPage = () => {
               },
               {
                 id: 2,
-                title: `${item.chapter} – Mechanisms and Processes`,
+                title: `${item.chapter} – Core Principles and Frameworks`,
                 difficulty: "Medium",
-                estimatedMinutes: 35,
-                learningObjective: `Understand how ${item.chapter} works.`,
+                estimatedMinutes: 30,
+                learningObjective: `Understand active models of ${item.chapter}.`,
                 prerequisite: `${item.chapter} – Definitions and Terminology`,
-                expectedOutcome: "Can trace processes step by step."
+                expectedOutcome: "Applies core framework logic."
               },
               {
                 id: 3,
                 title: `${item.chapter} – Types and Classification`,
                 difficulty: "Medium",
-                estimatedMinutes: 30,
-                learningObjective: `Classify components of ${item.chapter}.`,
-                prerequisite: `${item.chapter} – Mechanisms and Processes`,
+                estimatedMinutes: 25,
+                learningObjective: `Study components of ${item.chapter}.`,
+                prerequisite: `${item.chapter} – Core Principles and Frameworks`,
                 expectedOutcome: "Can categorize and compare."
               },
               {
@@ -222,8 +364,13 @@ const RoadmapPage = () => {
                 prerequisite: `${item.chapter} – Common Mistakes`,
                 expectedOutcome: "Ready for assessment."
               }
-            ]
+            ],
+            createdAt: new Date().toISOString()
           };
+
+          roadmapsMap[roadmapKey] = fallbackRoadmap;
+          localStorage.setItem('neurolearn_roadmaps_by_key', JSON.stringify(roadmapsMap));
+          return fallbackRoadmap;
         });
         localStorage.setItem('roadmaps', JSON.stringify(fallbackResults));
         setRoadmaps(fallbackResults);

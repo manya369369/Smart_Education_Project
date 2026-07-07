@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/LearnerProfilePage.css';
+import { getSubjectProgress, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
 
 const normalizeSelectedSubjects = (goalData, setupData) => {
   const sources = [setupData, goalData];
@@ -473,19 +474,64 @@ const LearnerProfilePage = () => {
               let currentTopic = null;
               let topicIndex = 0;
               let progressVal = 0;
-              
+              let roadmapKey = "";
+
+              if (matchingR) {
+                let goal = null;
+                try {
+                  const savedGoal = localStorage.getItem('neurolearn_goal_data');
+                  if (savedGoal) goal = JSON.parse(savedGoal);
+                } catch (e) {}
+                const gVal = goal?.goal || goal?.examGoal || 'General Study';
+                
+                let st = localStorage.getItem('neurolearn_student_type') || '';
+                let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+                const rawSetup = localStorage.getItem('neurolearn_setup_data');
+                if (rawSetup) {
+                  try {
+                    const setup = JSON.parse(rawSetup);
+                    if (!cos) cos = setup.classOrSemester || '';
+                    if (!st) st = setup.studentType || '';
+                  } catch (e) {}
+                }
+                const resolved = resolveClassAndSemester(st, cos);
+                roadmapKey = createRoadmapKey({
+                  studentType: st,
+                  classLevel: resolved.classLevel,
+                  semester: resolved.semester,
+                  subject: sub,
+                  chapter: matchingR.chapter || dataState.goal.chapter || 'Foundations',
+                  examGoal: gVal
+                });
+              }
+
               if (matchingR && Array.isArray(matchingR.topics) && matchingR.topics.length > 0) {
                 const topics = matchingR.topics;
-                const completedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
-                progressVal = Math.round((completedCount / topics.length) * 100);
-                
-                const incIdx = topics.findIndex(t => !t.completed && !t.isCompleted && t.status !== 'completed');
-                if (incIdx !== -1) {
-                  currentTopic = topics[incIdx];
-                  topicIndex = incIdx;
+                let savedProgress = null;
+                if (roadmapKey) {
+                  try {
+                    const rawProgress = localStorage.getItem('neurolearn_subject_progress');
+                    if (rawProgress) {
+                      const parsed = JSON.parse(rawProgress);
+                      if (parsed && parsed[roadmapKey]) {
+                        savedProgress = parsed[roadmapKey];
+                      }
+                    }
+                  } catch (e) {}
+                }
+
+                if (savedProgress) {
+                  topicIndex = savedProgress.currentTopicIndex ?? 0;
+                  progressVal = savedProgress.roadmapProgressPercent ?? 0;
+                  if (topicIndex >= topics.length) {
+                    topicIndex = topics.length - 1;
+                  }
+                  currentTopic = topics[topicIndex];
                 } else {
-                  currentTopic = topics[0];
+                  // Fallback to completedTopicIndexes inside subject progress or start from 0
                   topicIndex = 0;
+                  progressVal = 0;
+                  currentTopic = topics[0];
                 }
               }
               
@@ -512,7 +558,9 @@ const LearnerProfilePage = () => {
                 strongTopics,
                 assessmentScore: scoreVal,
                 roadmapId: matchingR?.id || matchingR?.roadmapId || "",
-                currentTopic: currentTopic
+                currentTopic: currentTopic,
+                roadmapKey,
+                roadmapProgressPercent: progressVal
               };
 
               return (

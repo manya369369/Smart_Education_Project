@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/StudyPlanPage.css';
-import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, initFreshTopicSession } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, initFreshTopicSession, getSubjectProgress, resolveSessionKey, resolveClassAndSemester, createRoadmapKey } from '../utils/sessionHelpers';
 
 const StudyPlanPage = () => {
   const navigate = useNavigate();
@@ -101,26 +101,113 @@ const StudyPlanPage = () => {
 
       const topics = matchingRoadmap.topics;
 
-      // Check both roadmap completion and subject progress completed topics
-      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
-      const completedIndices = completedList.map(t => t.topicIndex);
-
-      const incompleteIdx = topics.findIndex((t, idx) => {
-        const isSavedCompleted = completedIndices.includes(idx);
-        const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
-        return !isSavedCompleted && !isRoadmapCompleted;
+      // Use getSubjectProgress and getCompletedTopics
+      let goal = null;
+      let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+      let studentType = localStorage.getItem('neurolearn_student_type') || '';
+      try {
+        const savedGoal = localStorage.getItem('neurolearn_goal_data');
+        if (savedGoal) goal = JSON.parse(savedGoal);
+      } catch (e) {}
+      try {
+        const savedSetup = localStorage.getItem('neurolearn_setup_data');
+        if (savedSetup) {
+          const setup = JSON.parse(savedSetup);
+          if (!cos) cos = setup.classOrSemester || '';
+          if (!studentType) studentType = setup.studentType || '';
+        }
+      } catch (e) {}
+      const gVal = goal?.goal || goal?.examGoal || 'General Study';
+      const resolved = resolveClassAndSemester(studentType, cos);
+      const roadmapKey = createRoadmapKey({
+        studentType,
+        classLevel: resolved.classLevel,
+        semester: resolved.semester,
+        subject: journey.subject,
+        chapter: matchingRoadmap.chapter || journey.chapter || 'General',
+        examGoal: gVal
       });
-      const currentIdx = incompleteIdx !== -1 ? incompleteIdx : 0;
-      const currentTopic = topics[currentIdx];
 
-      console.log("Selected next incomplete topic:", currentTopic.title);
+      // Load progress by roadmapKey
+      let savedProgress = null;
+      try {
+        const rawProgress = localStorage.getItem('neurolearn_subject_progress');
+        if (rawProgress) {
+          const parsed = JSON.parse(rawProgress);
+          if (parsed && parsed[roadmapKey]) {
+            savedProgress = parsed[roadmapKey];
+          }
+        }
+      } catch (e) {}
+
+      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
+      let completedTopicIndexes = [];
+      if (savedProgress && Array.isArray(savedProgress.completedTopicIndexes)) {
+        completedTopicIndexes = savedProgress.completedTopicIndexes;
+      } else {
+        completedTopicIndexes = completedList.map(t => t.topicIndex);
+      }
+
+      let progressMap = {};
+      try {
+        progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
+      } catch (e) {}
+      let progress = progressMap[roadmapKey];
+      if (!progress) {
+        progress = {
+          roadmapKey,
+          currentTopicIndex: 0,
+          completedTopicIndexes: [],
+          revisionScheduled: false,
+          revisionTopicIndex: null,
+          lastQuizScore: null,
+          roadmapProgressPercent: 0,
+          lastUpdated: new Date().toISOString()
+        };
+        progressMap[roadmapKey] = progress;
+        localStorage.setItem('neurolearn_subject_progress', JSON.stringify(progressMap));
+      }
+
+      let currentIdx = 0;
+      let isRevision = false;
+      if (progress.revisionScheduled === true && typeof progress.revisionTopicIndex === 'number') {
+        currentIdx = progress.revisionTopicIndex;
+        isRevision = true;
+      } else {
+        currentIdx = progress.currentTopicIndex ?? 0;
+      }
+
+      // Cap index at last topic if completed
+      const displayIdx = currentIdx >= topics.length ? Math.max(0, topics.length - 1) : currentIdx;
+      const selectedTopic = topics[displayIdx] || topics[0];
+      const currentTopic = selectedTopic;
+
+      // Debug Logs
+      const existingRoadmap = matchingRoadmap;
+      savedProgress = progress;
+      const currentTopicIndex = currentIdx;
+      let completedCount = progress.completedTopicIndexes?.length ?? 0;
+      let progressPercent = progress.roadmapProgressPercent ?? 0;
+
+      const shouldCallGemini = !existingRoadmap;
+      const activeTopic = currentTopic;
+
+      console.log("ROADMAP KEY:", roadmapKey);
+      console.log("EXISTING ROADMAP FOUND:", !!existingRoadmap);
+      console.log("CALLING GEMINI ROADMAP:", shouldCallGemini);
+      console.log("LOADED PROGRESS:", progress);
+      console.log("CURRENT TOPIC INDEX:", currentTopicIndex);
+      console.log("REVISION SCHEDULED:", isRevision);
+      console.log("TIMETABLE ACTIVE TOPIC:", activeTopic);
 
       // Ensure the session is initialized fresh if it doesn't exist yet
-      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx, journey.recommendedStudyTime || 60);
+      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx, journey.recommendedStudyTime || 60);
 
       let topicProgressPercent = 0;
-      let revisionScheduled = false;
-      const sessionKey = buildTopicSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx);
+      let revisionScheduled = isRevision;
+      const sessionKey = resolveSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx);
+      console.log("Current learning session key:", sessionKey);
+
       try {
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
@@ -129,20 +216,24 @@ const StudyPlanPage = () => {
           if (session) {
             const { topicProgressPercent: calcProg } = calcTopicProgress(session);
             topicProgressPercent = calcProg;
-            revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+            if (!revisionScheduled) {
+              revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+            }
           }
         }
       } catch (e) {}
 
-      const roadmapCompletedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
-      const completedCount = Math.max(completedList.length, roadmapCompletedCount);
-      const progressPercent = Math.round(((completedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      // Adjust overall progress to account for current topic session micro-progress if not fully completed
+      if (!savedProgress) {
+        progressPercent = Math.round(((completedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      }
+      if (progressPercent > 100) progressPercent = 100;
 
       return {
         subject: journey.subject,
         chapter: matchingRoadmap.chapter || journey.chapter || 'General',
-        topicTitle: currentTopic.title || `Topic ${currentIdx + 1}`,
-        topicIndex: currentIdx,
+        topicTitle: currentTopic.title || `Topic ${displayIdx + 1}`,
+        topicIndex: displayIdx,
         totalTopics: topics.length,
         completedTopics: completedCount,
         progressPercent,
@@ -152,7 +243,8 @@ const StudyPlanPage = () => {
         allocatedTime: journey.recommendedStudyTime || 60,
         currentTopic: currentTopic,
         revisionScheduled,
-        topicProgressPercent
+        topicProgressPercent,
+        roadmapKey
       };
     } catch (e) {
       console.error('[StudyPlanPage] Error reading active journey study:', e);
@@ -282,129 +374,216 @@ const StudyPlanPage = () => {
 
   // State to hold generated plan
   const [currentPlan, setCurrentPlan] = useState(() => {
-    if (activeJourneyStudy) {
-      const expectedTopic = activeJourneyStudy.revisionScheduled ? `Revise ${activeJourneyStudy.topicTitle}` : activeJourneyStudy.topicTitle;
-      
-      const savedPlan = localStorage.getItem('neurolearn_study_plan');
-      if (savedPlan) {
-        try {
-          const parsed = JSON.parse(savedPlan);
-          // Verify it matches active journey subject and topic
-          if (parsed && parsed.generatedFromSubject === activeJourneyStudy.subject && 
-              parsed.tasks && parsed.tasks.length > 0 && 
-              (parsed.tasks[0].topic === expectedTopic || parsed.tasks[0].topic === activeJourneyStudy.topicTitle)) {
-            return parsed;
-          }
-        } catch (e) { /* skip */ }
-      }
+    let subj = activeJourneyStudy?.subject;
+    let chap = activeJourneyStudy?.chapter;
 
-      // Generate a fresh subject-specific plan for the active topic
-      const tasks = activeJourneyStudy.revisionScheduled ? [
-        {
-          time: "09:00 AM",
-          icon: "📝",
-          taskType: "AI Notes",
-          topic: `Revise ${activeJourneyStudy.topicTitle}`,
-          reason: `Low quiz score detected. Review notes to clarify core concepts.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
-        },
-        {
-          time: "09:30 AM",
-          icon: "📹",
-          taskType: "Personalized Video",
-          topic: `Revise ${activeJourneyStudy.topicTitle}`,
-          reason: `Low quiz score detected. Rewatch the video to reinforce your memory.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
-        },
-        {
-          time: "10:00 AM",
-          icon: "🧠",
-          taskType: "Adaptive Quiz",
-          topic: `Revise ${activeJourneyStudy.topicTitle}`,
-          reason: `Low quiz score detected. Retake the quiz to test your updated knowledge.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
+    if (!subj) {
+      try {
+        const raw = localStorage.getItem('neurolearn_active_subject_journey') ||
+                    localStorage.getItem('activeSubjectJourney') ||
+                    localStorage.getItem('neurolearn_active_journey');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          subj = parsed.subject;
+          chap = parsed.chapter;
         }
-      ] : [
-        {
-          time: "09:00 AM",
-          icon: "📹",
-          taskType: "Personalized Video",
-          topic: activeJourneyStudy.topicTitle,
-          reason: `Watch a personalized visual explanation of ${activeJourneyStudy.topicTitle}.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
-        },
-        {
-          time: "09:30 AM",
-          icon: "📝",
-          taskType: "AI Notes",
-          topic: activeJourneyStudy.topicTitle,
-          reason: `Review detailed conceptual study notes on ${activeJourneyStudy.topicTitle}.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
-        },
-        {
-          time: "10:00 AM",
-          icon: "🧠",
-          taskType: "Adaptive Quiz",
-          topic: activeJourneyStudy.topicTitle,
-          reason: `Test your understanding of ${activeJourneyStudy.topicTitle} with an adaptive quiz.`,
-          subject: activeJourneyStudy.subject,
-          chapter: activeJourneyStudy.chapter,
-          recommendedStudyTime: activeJourneyStudy.estimatedMinutes,
-          currentTopicIndex: activeJourneyStudy.topicIndex
-        }
-      ];
-
-      const generated = {
-        generatedFromSubject: activeJourneyStudy.subject,
-        generatedFromWeakTopics: [activeJourneyStudy.topicTitle],
-        tasks: tasks,
-        estimatedTime: `${activeJourneyStudy.estimatedMinutes * 3} Minutes focused session`,
-        reasons: activeJourneyStudy.revisionScheduled ? [
-          `Revision priority: Low quiz score detected for ${activeJourneyStudy.topicTitle}.`,
-          `Aligned to chapter: ${activeJourneyStudy.chapter}.`
-        ] : [
-          `Prioritized active roadmap topic: ${activeJourneyStudy.topicTitle}.`,
-          `Aligned to chapter: ${activeJourneyStudy.chapter}.`
-        ],
-        completion: 0,
-        createdAt: new Date().toISOString()
-      };
-      localStorage.setItem('neurolearn_study_plan', JSON.stringify(generated));
-      console.log("Subject-specific study plan generated");
-      return generated;
+      } catch (e) {}
     }
 
+    if (!subj) {
+      subj = assessment?.subject || goal?.subjects?.[0] || 'General Learning';
+      chap = goal?.chapter || 'General Foundations';
+    }
+
+    let goalData = null;
+    let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+    let studentType = localStorage.getItem('neurolearn_student_type') || '';
+    try {
+      const savedGoal = localStorage.getItem('neurolearn_goal_data');
+      if (savedGoal) goalData = JSON.parse(savedGoal);
+    } catch (e) {}
+    try {
+      const savedSetup = localStorage.getItem('neurolearn_setup_data');
+      if (savedSetup) {
+        const setup = JSON.parse(savedSetup);
+        if (!cos) cos = setup.classOrSemester || '';
+        if (!studentType) studentType = setup.studentType || '';
+      }
+    } catch (e) {}
+    const gVal = goalData?.goal || goalData?.examGoal || 'General Study';
+    const resolved = resolveClassAndSemester(studentType, cos);
+    const roadmapKey = createRoadmapKey({
+      studentType,
+      classLevel: resolved.classLevel,
+      semester: resolved.semester,
+      subject: subj,
+      chapter: chap,
+      examGoal: gVal
+    });
+
+    let matchingRoadmap = null;
+    try {
+      const roadmapsMap = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
+      matchingRoadmap = roadmapsMap[roadmapKey];
+    } catch (e) {}
+
+    if (!matchingRoadmap) {
+      const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+      let allRoadmaps = [];
+      for (const key of roadmapKeys) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              allRoadmaps = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+      matchingRoadmap = allRoadmaps.find(
+        r => r.subject?.toLowerCase() === subj.toLowerCase() &&
+             r.chapter?.toLowerCase() === chap.toLowerCase()
+      ) || allRoadmaps.find(r => r.subject?.toLowerCase() === subj.toLowerCase());
+    }
+
+    const topics = matchingRoadmap?.topics || [];
+
+    let progressMap = {};
+    try {
+      progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
+    } catch (e) {}
+    let progress = progressMap[roadmapKey];
+    if (!progress) {
+      progress = {
+        roadmapKey,
+        currentTopicIndex: 0,
+        completedTopicIndexes: [],
+        revisionScheduled: false,
+        revisionTopicIndex: null,
+        lastQuizScore: null,
+        roadmapProgressPercent: 0,
+        lastUpdated: new Date().toISOString()
+      };
+      progressMap[roadmapKey] = progress;
+      localStorage.setItem('neurolearn_subject_progress', JSON.stringify(progressMap));
+    }
+
+    let currentIdx = 0;
+    let revisionScheduled = false;
+    if (progress.revisionScheduled === true && typeof progress.revisionTopicIndex === 'number') {
+      currentIdx = progress.revisionTopicIndex;
+      revisionScheduled = true;
+    } else {
+      currentIdx = progress.currentTopicIndex ?? 0;
+    }
+
+    const displayIdx = currentIdx >= topics.length ? Math.max(0, topics.length - 1) : currentIdx;
+    const selectedTopic = topics[displayIdx];
+    const activeTopicTitle = selectedTopic?.title || 'Foundational Concepts';
+
+    const expectedTopic = revisionScheduled ? `Revise ${activeTopicTitle}` : activeTopicTitle;
     const savedPlan = localStorage.getItem('neurolearn_study_plan');
     if (savedPlan) {
       try {
-        return JSON.parse(savedPlan);
-      } catch (e) {
-        console.error("[StudyPlanPage] Error parsing saved study plan, re-generating...", e);
+        const parsed = JSON.parse(savedPlan);
+        if (parsed && parsed.generatedFromSubject === subj && 
+            parsed.tasks && parsed.tasks.length > 0 && 
+            (parsed.tasks[0].topic === expectedTopic || parsed.tasks[0].topic === activeTopicTitle)) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+
+    const tasks = revisionScheduled ? [
+      {
+        time: "09:00 AM",
+        icon: "📝",
+        taskType: "AI Notes",
+        topic: `Revise ${activeTopicTitle}`,
+        reason: `Low quiz score detected. Review notes to clarify core concepts.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
+      },
+      {
+        time: "09:30 AM",
+        icon: "📹",
+        taskType: "Personalized Video",
+        topic: `Revise ${activeTopicTitle}`,
+        reason: `Low quiz score detected. Rewatch the video to reinforce your memory.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
+      },
+      {
+        time: "10:00 AM",
+        icon: "🧠",
+        taskType: "Adaptive Quiz",
+        topic: `Revise ${activeTopicTitle}`,
+        reason: `Low quiz score detected. Retake the quiz to test your updated knowledge.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
       }
-    }
+    ] : [
+      {
+        time: "09:00 AM",
+        icon: "📹",
+        taskType: "Personalized Video",
+        topic: activeTopicTitle,
+        reason: `Watch a personalized visual explanation of ${activeTopicTitle}.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
+      },
+      {
+        time: "09:30 AM",
+        icon: "📝",
+        taskType: "AI Notes",
+        topic: activeTopicTitle,
+        reason: `Review detailed conceptual study notes on ${activeTopicTitle}.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
+      },
+      {
+        time: "10:00 AM",
+        icon: "🧠",
+        taskType: "Adaptive Quiz",
+        topic: activeTopicTitle,
+        reason: `Test your understanding of ${activeTopicTitle} with an adaptive quiz.`,
+        subject: subj,
+        chapter: chap,
+        recommendedStudyTime: selectedTopic?.estimatedMinutes || 60,
+        currentTopicIndex: displayIdx
+      }
+    ];
 
-    if (isInvalid) {
-      return null;
-    }
+    const generated = {
+      generatedFromSubject: subj,
+      generatedFromWeakTopics: [activeTopicTitle],
+      tasks: tasks,
+      estimatedTime: `${(selectedTopic?.estimatedMinutes || 60) * 3} Minutes focused session`,
+      reasons: revisionScheduled ? [
+        `Revision priority: Low quiz score detected for ${activeTopicTitle}.`,
+        `Aligned to chapter: ${chap}.`
+      ] : [
+        `Prioritized active roadmap topic: ${activeTopicTitle}.`,
+        `Aligned to chapter: ${chap}.`
+      ],
+      completion: 0,
+      createdAt: new Date().toISOString()
+    };
 
-    const generated = generateStudyPlanPayload(assessment, profile, goal);
     localStorage.setItem('neurolearn_study_plan', JSON.stringify(generated));
-    console.log("Study plan generated");
+    console.log("Subject-specific study plan generated");
     return generated;
   });
 
@@ -450,25 +629,25 @@ const StudyPlanPage = () => {
       setSuccessMessage("");
       
       setTimeout(() => {
-        // Read if revision is scheduled
-        const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
+        let progressMap = {};
+        try {
+          progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
+        } catch (e) {}
+        let progress = progressMap[activeJourneyStudy.roadmapKey];
+
         let revisionScheduled = false;
-        let activeTopicTitle = activeJourneyStudy.topicTitle;
         let currentIdx = activeJourneyStudy.topicIndex;
-        if (sessionsRaw) {
-          try {
-            const sessions = JSON.parse(sessionsRaw);
-            const sessionKey = buildTopicSessionKey(activeJourneyStudy.subject, activeJourneyStudy.chapter, activeTopicTitle, currentIdx);
-            const session = sessions[sessionKey];
-            if (session) {
-              revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
-              if (revisionScheduled) {
-                activeTopicTitle = session.currentTopic || activeJourneyStudy.topicTitle;
-                currentIdx = typeof session.currentTopicIndex === 'number' ? session.currentTopicIndex : activeJourneyStudy.topicIndex;
-              }
-            }
-          } catch (e) {}
+        if (progress) {
+          revisionScheduled = !!progress.revisionScheduled;
+          currentIdx = revisionScheduled ? (progress.revisionTopicIndex ?? 0) : (progress.currentTopicIndex ?? 0);
         }
+
+        const roadmapStore = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
+        const roadmap = roadmapStore[activeJourneyStudy.roadmapKey];
+        const topics = roadmap?.topics || [];
+        const displayIdx = currentIdx >= topics.length ? Math.max(0, topics.length - 1) : currentIdx;
+        const selectedTopic = topics[displayIdx];
+        const activeTopicTitle = selectedTopic?.title || activeJourneyStudy.topicTitle;
 
         const tasks = revisionScheduled ? [
           {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/LearningPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, syncSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
 
 // --- Dynamic Mock & Fallback Data Generators ---
 
@@ -420,7 +420,7 @@ const getSentences = (text) => {
 };
 
 const getOrCreateSession = (subject, chapter, topic, topicIndex, allocatedMinutes) => {
-  const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
+  const sessionKey = resolveSessionKey(subject, chapter, topic, topicIndex);
   const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
   let sessions = {};
   if (sessionsRaw) {
@@ -515,7 +515,61 @@ const LearningPage = () => {
     return null;
   });
 
-  const { taskType, topic, reason, subject } = currentTask || {};
+  // Resolve current topic from subjectProgress and roadmapStore (neurolearn_roadmaps_by_key)
+  const resolvedTopicObj = useMemo(() => {
+    if (!currentTask || !currentTask.subject) return null;
+    try {
+      const subj = currentTask.subject;
+      const chap = currentTask.chapter;
+      
+      let goal = null;
+      let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+      let studentType = localStorage.getItem('neurolearn_student_type') || '';
+      const savedGoal = localStorage.getItem('neurolearn_goal_data');
+      if (savedGoal) goal = JSON.parse(savedGoal);
+      const savedSetup = localStorage.getItem('neurolearn_setup_data');
+      if (savedSetup) {
+        const setup = JSON.parse(savedSetup);
+        if (!cos) cos = setup.classOrSemester || '';
+        if (!studentType) studentType = setup.studentType || '';
+      }
+      const gVal = goal?.goal || goal?.examGoal || 'General Study';
+      const resolved = resolveClassAndSemester(studentType, cos);
+      const roadmapKey = createRoadmapKey({
+        studentType,
+        classLevel: resolved.classLevel,
+        semester: resolved.semester,
+        subject: subj,
+        chapter: chap,
+        examGoal: gVal
+      });
+
+      const roadmapsMap = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
+      const roadmap = roadmapsMap[roadmapKey];
+
+      const progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
+      const progress = progressMap[roadmapKey];
+
+      if (roadmap) {
+        const idx = (progress && typeof progress.currentTopicIndex === 'number') ? progress.currentTopicIndex : 0;
+        const displayIdx = idx >= roadmap.topics.length ? Math.max(0, roadmap.topics.length - 1) : idx;
+        const topicObj = roadmap.topics[displayIdx];
+        if (topicObj) {
+          return {
+            title: topicObj.title,
+            index: displayIdx
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("LearningPage failed to resolve topic from progress, using task defaults:", e);
+    }
+    return null;
+  }, [currentTask]);
+
+  const { taskType, reason, subject } = currentTask || {};
+  const topic = resolvedTopicObj ? resolvedTopicObj.title : (currentTask?.topic || '');
+  const cleanTopicIndex = resolvedTopicObj ? resolvedTopicObj.index : (currentTask?.currentTopicIndex || 0);
 
   // 2. Select initial active tab based on taskType
   const [activeTab, setActiveTab] = useState(() => {
@@ -591,7 +645,7 @@ const LearningPage = () => {
         const chap = parsed.chapter || "General Foundations";
         const topicName = parsed.topic || 'Unknown Topic';
         const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
-        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+        const sessionKey = resolveSessionKey(subj, chap, topicName, topicIdx);
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
@@ -611,7 +665,7 @@ const LearningPage = () => {
         const chap = parsed.chapter || "General Foundations";
         const topicName = parsed.topic || 'Unknown Topic';
         const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
-        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+        const sessionKey = resolveSessionKey(subj, chap, topicName, topicIdx);
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
@@ -635,7 +689,7 @@ const LearningPage = () => {
         const chap = parsed.chapter || "General Foundations";
         const topicName = parsed.topic || 'Unknown Topic';
         const topicIdx = typeof parsed.currentTopicIndex === 'number' ? parsed.currentTopicIndex : 0;
-        const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+        const sessionKey = resolveSessionKey(subj, chap, topicName, topicIdx);
         const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
         if (sessionsRaw) {
           const sessions = JSON.parse(sessionsRaw);
@@ -679,7 +733,7 @@ const LearningPage = () => {
   }, [tutorChat]);
 
   const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
-    const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
+    const sessionKey = resolveSessionKey(subject, chapter, topic, topicIndex);
     const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
     let sessions = {};
     if (sessionsRaw) {
@@ -778,6 +832,13 @@ const LearningPage = () => {
         quizSeconds: s.quizSeconds || 0,
         totalSecondsSpent: s.totalSecondsSpent || 0
       });
+    } else {
+      // Sync partial completion/progress fields
+      try {
+        syncSubjectProgress(subject, chapter);
+      } catch (err) {
+        console.error('[LearningPage] Error syncing subject progress in updateSessionCompletion:', err);
+      }
     }
 
     // Update React state for progress bar
@@ -862,7 +923,7 @@ const LearningPage = () => {
     const subj = currentTask.subject || "General Learning";
     const chap = currentTask.chapter || "General Foundations";
     const topicIdx = currentTask.currentTopicIndex || 0;
-    const sessionKey = buildTopicSessionKey(subj, chap, topic, topicIdx);
+    const sessionKey = resolveSessionKey(subj, chap, topic, topicIdx);
 
     const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
     let sessions = {};
@@ -911,6 +972,13 @@ const LearningPage = () => {
           quizSeconds: session.quizSeconds || 0,
           totalSecondsSpent: session.totalSecondsSpent || 0
         });
+      } else {
+        // Just sync time and partial progress
+        try {
+          syncSubjectProgress(subj, chap);
+        } catch (err) {
+          console.error('[LearningPage] Error syncing subject progress:', err);
+        }
       }
 
       // Sync progress state immediately

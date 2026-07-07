@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/DashboardPage.css';
-import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
 
 // Animated counter component for numbers
 const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
@@ -240,65 +240,160 @@ const DashboardPage = () => {
       console.log("[DashboardPage] Active journey:", journey);
       console.log("[DashboardPage] Dashboard subject:", journey.subject);
 
-      // 2. Read the cached roadmaps
-      const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
-      let allRoadmaps = [];
-      for (const key of roadmapKeys) {
+      // 2. Read the cached roadmap from neurolearn_roadmaps_by_key using roadmapKey
+      let matchingRoadmap = null;
+      if (journey.roadmapKey) {
         try {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              allRoadmaps = parsed;
-              break;
-            }
-          }
-        } catch (e) { /* skip */ }
+          const roadmapsMap = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
+          matchingRoadmap = roadmapsMap[journey.roadmapKey];
+        } catch (e) {}
       }
 
-      // 3. Find the roadmap matching the active subject AND chapter
-      let matchingRoadmap = allRoadmaps.find(
-        r => r.subject?.toLowerCase() === journey.subject?.toLowerCase() &&
-             r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
-      );
       if (!matchingRoadmap) {
+        const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
+        let allRoadmaps = [];
+        for (const key of roadmapKeys) {
+          try {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                allRoadmaps = parsed;
+                break;
+              }
+            }
+          } catch (e) { /* skip */ }
+        }
+
         matchingRoadmap = allRoadmaps.find(
-          r => r.subject?.toLowerCase() === journey.subject?.toLowerCase()
+          r => r.subject?.toLowerCase() === journey.subject?.toLowerCase() &&
+               r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
         );
+        if (!matchingRoadmap) {
+          matchingRoadmap = allRoadmaps.find(
+            r => r.subject?.toLowerCase() === journey.subject?.toLowerCase()
+          );
+        }
       }
+
       if (!matchingRoadmap || !Array.isArray(matchingRoadmap.topics) || matchingRoadmap.topics.length === 0) {
         setTodayStudy(null); setActiveSession(null); return;
       }
 
       const topics = matchingRoadmap.topics;
 
-      // Use getCompletedTopics from neurolearn_subject_progress for accurate count & indices
-      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
-      const completedIndices = completedList.map(t => t.topicIndex);
+      // 3. Resolve roadmapKey
+      let goal = null;
+      let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+      let studentType = localStorage.getItem('neurolearn_student_type') || '';
+      try {
+        const savedGoal = localStorage.getItem('neurolearn_goal_data');
+        if (savedGoal) goal = JSON.parse(savedGoal);
+      } catch (e) {}
+      try {
+        const savedSetup = localStorage.getItem('neurolearn_setup_data');
+        if (savedSetup) {
+          const setup = JSON.parse(savedSetup);
+          if (!cos) cos = setup.classOrSemester || '';
+          if (!studentType) studentType = setup.studentType || '';
+        }
+      } catch (e) {}
+      const gVal = goal?.goal || goal?.examGoal || 'General Study';
 
-      // Find first roadmap topic whose topicIndex is NOT in completedTopics list
-      const nextIncompleteIdx = topics.findIndex((t, idx) => {
-        const isSavedCompleted = completedIndices.includes(idx);
-        const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
-        return !isSavedCompleted && !isRoadmapCompleted;
+      const resolved = resolveClassAndSemester(studentType, cos);
+      const roadmapKey = journey.roadmapKey || createRoadmapKey({
+        studentType,
+        classLevel: resolved.classLevel,
+        semester: resolved.semester,
+        subject: journey.subject,
+        chapter: matchingRoadmap.chapter || journey.chapter || 'General',
+        examGoal: gVal
       });
-      const currentIdx = nextIncompleteIdx !== -1 ? nextIncompleteIdx : 0;
-      const currentTopic = topics[currentIdx];
 
-      console.log("[DashboardPage] Selected next incomplete topic:", currentTopic.title);
+      // Load progress by roadmapKey
+      let savedProgress = null;
+      try {
+        const rawProgress = localStorage.getItem('neurolearn_subject_progress');
+        if (rawProgress) {
+          const parsed = JSON.parse(rawProgress);
+          if (parsed && parsed[roadmapKey]) {
+            savedProgress = parsed[roadmapKey];
+          }
+        }
+      } catch (e) {}
+
+      const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
+      let completedTopicIndexes = [];
+      if (savedProgress && Array.isArray(savedProgress.completedTopicIndexes)) {
+        completedTopicIndexes = savedProgress.completedTopicIndexes;
+      } else {
+        completedTopicIndexes = completedList.map(t => t.topicIndex);
+      }
+
+      let progressMap = {};
+      try {
+        progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
+      } catch (e) {}
+      let progress = progressMap[roadmapKey];
+      if (!progress) {
+        progress = {
+          roadmapKey,
+          currentTopicIndex: 0,
+          completedTopicIndexes: [],
+          revisionScheduled: false,
+          revisionTopicIndex: null,
+          lastQuizScore: null,
+          roadmapProgressPercent: 0,
+          lastUpdated: new Date().toISOString()
+        };
+        progressMap[roadmapKey] = progress;
+        localStorage.setItem('neurolearn_subject_progress', JSON.stringify(progressMap));
+      }
+
+      let currentIdx = 0;
+      let isRevision = false;
+      if (progress.revisionScheduled === true && typeof progress.revisionTopicIndex === 'number') {
+        currentIdx = progress.revisionTopicIndex;
+        isRevision = true;
+      } else {
+        currentIdx = progress.currentTopicIndex ?? 0;
+      }
+
+      // Cap index at last topic if completed
+      const displayIdx = currentIdx >= topics.length ? Math.max(0, topics.length - 1) : currentIdx;
+      const selectedTopic = topics[displayIdx] || topics[0];
+      const currentTopic = selectedTopic;
+
+      // Debug Logs
+      const existingRoadmap = matchingRoadmap;
+      const currentTopicIndex = currentIdx;
+      savedProgress = progress;
+      let finalCompletedCount = progress.completedTopicIndexes?.length ?? 0;
+      let overallProgressPercent = progress.roadmapProgressPercent ?? 0;
+      
+      const shouldCallGemini = !existingRoadmap;
+      const activeTopic = currentTopic;
+
+      console.log("ROADMAP KEY:", roadmapKey);
+      console.log("EXISTING ROADMAP FOUND:", !!existingRoadmap);
+      console.log("CALLING GEMINI ROADMAP:", shouldCallGemini);
+      console.log("LOADED PROGRESS:", progress);
+      console.log("CURRENT TOPIC INDEX:", currentTopicIndex);
+      console.log("REVISION SCHEDULED:", isRevision);
+      console.log("TIMETABLE ACTIVE TOPIC:", activeTopic);
 
       // Ensure the session is initialized fresh if it doesn't exist
-      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx, journey.recommendedStudyTime || 60);
+      initFreshTopicSession(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx, journey.recommendedStudyTime || 60);
 
       let topicProgressPercent = 0;
-      let revisionScheduled = false;
+      let revisionScheduled = isRevision;
       let topicCompleted = false;
       let spentSeconds = 0;
       let remainingSeconds = (journey.recommendedStudyTime || 60) * 60;
       let sessionAllocatedMinutes = journey.recommendedStudyTime || 60;
 
-      const sessionKey = buildTopicSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, currentIdx);
-      console.log("[DashboardPage] Session key:", sessionKey);
+      const sessionKey = resolveSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx);
+      console.log("Current learning session key:", sessionKey);
 
       let currentSession = null;
       try {
@@ -310,7 +405,7 @@ const DashboardPage = () => {
             currentSession = session;
             const { topicProgressPercent: calcProg } = calcTopicProgress(session);
             topicProgressPercent = calcProg;
-            revisionScheduled = !!(session.revisionScheduled || session.needsRevision);
+            revisionScheduled = !!(session.revisionScheduled || session.needsRevision) || revisionScheduled;
             topicCompleted = !!session.topicCompleted;
             spentSeconds = session.totalSecondsSpent || 0;
             remainingSeconds = session.remainingSeconds ?? ((session.allocatedMinutes || 60) * 60);
@@ -322,18 +417,17 @@ const DashboardPage = () => {
       console.log("[DashboardPage] Learning session:", currentSession);
       console.log("[DashboardPage] Spent seconds:", spentSeconds, "Remaining:", remainingSeconds);
 
-      // Roadmap progress calculations
-      const roadmapCompletedCount = topics.filter(t => t.completed || t.isCompleted || t.status === 'completed').length;
-      const finalCompletedCount = Math.max(completedList.length, roadmapCompletedCount);
-
-      let overallProgressPercent = Math.round(((finalCompletedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      // Adjust overall progress to account for current topic session micro-progress if not fully completed
+      if (!savedProgress) {
+        overallProgressPercent = Math.round(((finalCompletedCount + (topicProgressPercent / 100)) / topics.length) * 100);
+      }
       if (overallProgressPercent > 100) overallProgressPercent = 100;
 
       setTodayStudy({
         subject: journey.subject,
         chapter: matchingRoadmap.chapter || journey.chapter || 'General',
-        topicTitle: currentTopic.title || `Topic ${currentIdx + 1}`,
-        topicIndex: currentIdx,
+        topicTitle: currentTopic.title || `Topic ${displayIdx + 1}`,
+        topicIndex: displayIdx,
         totalTopics: topics.length,
         completedTopics: finalCompletedCount,
         progressPercent: overallProgressPercent,
@@ -513,7 +607,7 @@ const DashboardPage = () => {
     const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
     const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
     const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
-    const topicIdx = typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : (todayStudy?.topicIndex || 0);
+    const topicIdx = typeof todayStudy?.topicIndex === 'number' ? todayStudy.topicIndex : (typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : 0);
     const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
 
     if (!subject || !topicVal) {
@@ -551,7 +645,7 @@ const DashboardPage = () => {
     const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
     const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
     const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
-    const topicIdx = typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : (todayStudy?.topicIndex || 0);
+    const topicIdx = typeof todayStudy?.topicIndex === 'number' ? todayStudy.topicIndex : (typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : 0);
     const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
 
     let type = resourceType;

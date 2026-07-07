@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/QuizPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics, syncSubjectProgress, resolveSessionKey, incrementTopicAttempt, getTopicAttemptId, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
 
 // Curated question pools for popular topics
 const CURATED_POOLS = {
@@ -357,7 +357,7 @@ const safeParseAllocatedMinutes = (value) => {
 };
 
 const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
-  const sessionKey = buildTopicSessionKey(subject, chapter, topic, topicIndex);
+  const sessionKey = resolveSessionKey(subject, chapter, topic, topicIndex);
   const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
   let sessions = {};
   if (sessionsRaw) {
@@ -452,6 +452,12 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
       quizSeconds: s.quizSeconds || 0,
       totalSecondsSpent: s.totalSecondsSpent || 0
     });
+  } else {
+    try {
+      syncSubjectProgress(subject, chapter);
+    } catch (err) {
+      console.error('[QuizPage] Error syncing subject progress in updateSessionCompletion:', err);
+    }
   }
 
   return s;
@@ -549,7 +555,7 @@ const QuizPage = () => {
     const chap = task?.chapter || "General Foundations";
     const topicName = topicInfo.topic;
     const topicIdx = task?.currentTopicIndex || 0;
-    const sessionKey = buildTopicSessionKey(subj, chap, topicName, topicIdx);
+    const sessionKey = resolveSessionKey(subj, chap, topicName, topicIdx);
 
     const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
     let sessions = {};
@@ -879,7 +885,7 @@ const QuizPage = () => {
         }
       }
 
-      const sessionKey = buildTopicSessionKey(subj, chap, topicInfo.topic, task?.currentTopicIndex);
+      const sessionKey = resolveSessionKey(subj, chap, topicInfo.topic, task?.currentTopicIndex);
       const session = sessions[sessionKey] || {};
 
       const isGoodScore = percentage >= 70;
@@ -906,7 +912,32 @@ const QuizPage = () => {
       updatedSessions[sessionKey] = updatedSession;
       localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(updatedSessions));
 
-      // Resolve roadmap contexts
+      // 1. Build stable roadmapKey
+      const savedGoal = localStorage.getItem('neurolearn_goal_data');
+      let goal = null;
+      if (savedGoal) goal = JSON.parse(savedGoal);
+      let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+      let studentType = localStorage.getItem('neurolearn_student_type') || '';
+      try {
+        const savedSetup = localStorage.getItem('neurolearn_setup_data');
+        if (savedSetup) {
+          const setup = JSON.parse(savedSetup);
+          if (!cos) cos = setup.classOrSemester || '';
+          if (!studentType) studentType = setup.studentType || '';
+        }
+      } catch (e) {}
+      const gVal = goal?.goal || goal?.examGoal || 'General Study';
+      const resolved = resolveClassAndSemester(studentType, cos);
+      const roadmapKey = createRoadmapKey({
+        studentType,
+        classLevel: resolved.classLevel,
+        semester: resolved.semester,
+        subject: subj,
+        chapter: chap,
+        examGoal: gVal
+      });
+
+      // 2. Resolve roadmap topics list
       const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
       let allRoadmaps = [];
       for (const key of roadmapKeys) {
@@ -932,38 +963,181 @@ const QuizPage = () => {
         );
       }
 
-      // Check both roadmap completion and subject progress completed topics
-      const completedList = getCompletedTopics(subj, chap);
-      const completedIndices = completedList.map(t => t.topicIndex);
-
-      let nextIncompleteTopic = "";
-      let nextIncompleteIdx = 0;
-      if (matchingRoadmap && Array.isArray(matchingRoadmap.topics)) {
-        const incomplete = matchingRoadmap.topics.find((t, idx) => {
-          const isSavedCompleted = completedIndices.includes(idx);
-          const isRoadmapCompleted = t.completed || t.isCompleted || t.status === 'completed';
-          return !isSavedCompleted && !isRoadmapCompleted;
-        });
-        if (incomplete) {
-          nextIncompleteTopic = incomplete.title;
-          nextIncompleteIdx = matchingRoadmap.topics.indexOf(incomplete);
-        }
+      if (!matchingRoadmap || !Array.isArray(matchingRoadmap.topics)) {
+        throw new Error("Roadmap topics not found");
       }
 
-      // Maintain subject-wise timetable state
+      const topics = matchingRoadmap.topics;
+      const totalTopics = topics.length;
+
+      // 3. Load or initialize neurolearn_subject_progress[roadmapKey]
+      let progressMap = {};
+      try {
+        progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress')) || {};
+      } catch (e) {
+        progressMap = {};
+      }
+      if (!progressMap || typeof progressMap !== 'object') progressMap = {};
+
+      const progressBefore = progressMap[roadmapKey] ? JSON.parse(JSON.stringify(progressMap[roadmapKey])) : null;
+
+      if (!progressMap[roadmapKey]) {
+        progressMap[roadmapKey] = {
+          roadmapKey,
+          currentTopicIndex: 0,
+          completedTopicIndexes: [],
+          revisionScheduled: false,
+          revisionTopicIndex: null,
+          lastQuizScore: null,
+          roadmapProgressPercent: 0,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      const pObj = progressMap[roadmapKey];
+
+      const currIdx = typeof task?.currentTopicIndex === 'number' ? task.currentTopicIndex : pObj.currentTopicIndex;
+
+      // 4. Update index and history based on score (Step 5)
+      if (percentage >= 70) {
+        // add currentTopicIndex to completedTopicIndexes if not already present
+        if (!pObj.completedTopicIndexes.includes(currIdx)) {
+          pObj.completedTopicIndexes.push(currIdx);
+        }
+        // currentTopicIndex = first roadmap topic index not in completedTopicIndexes
+        const nextIncompleteIdx = topics.findIndex((_, idx) => !pObj.completedTopicIndexes.includes(idx));
+        pObj.currentTopicIndex = nextIncompleteIdx !== -1 ? nextIncompleteIdx : topics.length;
+        pObj.revisionScheduled = false;
+        pObj.revisionTopicIndex = null;
+      } else {
+        // currentTopicIndex remains same
+        pObj.revisionScheduled = true;
+        pObj.revisionTopicIndex = currIdx;
+      }
+      pObj.lastQuizScore = percentage;
+      pObj.roadmapProgressPercent = Math.round((pObj.completedTopicIndexes.length / totalTopics) * 100);
+      pObj.lastUpdated = new Date().toISOString();
+
+      // Save updated progress immediately
+      progressMap[roadmapKey] = pObj;
+      progressMap[subj] = pObj; // Fallback sync
+      localStorage.setItem('neurolearn_subject_progress', JSON.stringify(progressMap));
+
+      // Console logs as requested (Step 1)
+      console.log("QUIZ SUBMITTED:", {
+        subject: subj,
+        chapter: chap,
+        roadmapKey,
+        currentTopicIndex: currIdx,
+        quizScore: percentage
+      });
+      console.log("PROGRESS BEFORE QUIZ:", progressBefore);
+      console.log("PROGRESS AFTER QUIZ:", pObj);
+
+      // 5. Generate study plan timetable ONLY
+      const nextTopicIdx = pObj.currentTopicIndex < totalTopics ? pObj.currentTopicIndex : (totalTopics - 1);
+      const nextTopicTitle = isGoodScore ? (topics[nextTopicIdx]?.title || topicInfo.topic) : topicInfo.topic;
+      const isRevision = !isGoodScore;
+
+      const studyPlanTasks = isRevision ? [
+        {
+          time: "09:00 AM",
+          icon: "📝",
+          taskType: "AI Notes",
+          topic: `Revise ${nextTopicTitle}`,
+          reason: `Low quiz score detected. Review notes to clarify core concepts.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        },
+        {
+          time: "09:30 AM",
+          icon: "📹",
+          taskType: "Personalized Video",
+          topic: `Revise ${nextTopicTitle}`,
+          reason: `Low quiz score detected. Rewatch the video to reinforce your memory.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        },
+        {
+          time: "10:00 AM",
+          icon: "🧠",
+          taskType: "Adaptive Quiz",
+          topic: `Revise ${nextTopicTitle}`,
+          reason: `Low quiz score detected. Retake the quiz to test your updated knowledge.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        }
+      ] : [
+        {
+          time: "09:00 AM",
+          icon: "📹",
+          taskType: "Personalized Video",
+          topic: nextTopicTitle,
+          reason: `Watch a personalized visual explanation of ${nextTopicTitle}.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        },
+        {
+          time: "09:30 AM",
+          icon: "📝",
+          taskType: "AI Notes",
+          topic: nextTopicTitle,
+          reason: `Review detailed conceptual study notes on ${nextTopicTitle}.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        },
+        {
+          time: "10:00 AM",
+          icon: "🧠",
+          taskType: "Adaptive Quiz",
+          topic: nextTopicTitle,
+          reason: `Test your understanding of ${nextTopicTitle} with an adaptive quiz.`,
+          subject: subj,
+          chapter: chap,
+          recommendedStudyTime: updatedSession.allocatedMinutes || 60,
+          currentTopicIndex: nextTopicIdx
+        }
+      ];
+
+      const freshPlan = {
+        generatedFromSubject: subj,
+        generatedFromWeakTopics: [nextTopicTitle],
+        tasks: studyPlanTasks,
+        estimatedTime: `${(updatedSession.allocatedMinutes || 60) * 3} Minutes focused session`,
+        reasons: isRevision ? [
+          `Revision priority: Low quiz score detected for ${nextTopicTitle}.`,
+          `Aligned to chapter: ${chap}.`
+        ] : [
+          `Prioritized active roadmap topic: ${nextTopicTitle}.`,
+          `Aligned to chapter: ${chap}.`
+        ],
+        completion: 0,
+        createdAt: new Date().toISOString()
+      };
+      localStorage.setItem('neurolearn_study_plan', JSON.stringify(freshPlan));
+
+      // Timetable key compatibility
       const timetablesRaw = localStorage.getItem('neurolearn_subject_timetables');
       let timetables = {};
       if (timetablesRaw) {
         try { timetables = JSON.parse(timetablesRaw); } catch (e) {}
       }
-
       const timetableKey = `${subj}__${chap}`;
       timetables[timetableKey] = {
         activeTaskType: isGoodScore ? "nextTopic" : "revision",
-        currentTopic: isGoodScore ? (nextIncompleteTopic || topicInfo.topic) : topicInfo.topic,
-        currentTopicIndex: isGoodScore ? nextIncompleteIdx : (task?.currentTopicIndex || 0),
+        currentTopic: isGoodScore ? nextTopicTitle : topicInfo.topic,
+        currentTopicIndex: nextTopicIdx,
         revisionTopic: isGoodScore ? "" : topicInfo.topic,
-        nextTopic: nextIncompleteTopic,
+        nextTopic: isGoodScore ? nextTopicTitle : "",
         allocatedSeconds: (updatedSession.allocatedMinutes || 60) * 60,
         totalSecondsSpent: updatedSession.totalSecondsSpent,
         remainingSeconds: updatedSession.remainingSeconds,
@@ -973,15 +1147,7 @@ const QuizPage = () => {
       };
       localStorage.setItem('neurolearn_subject_timetables', JSON.stringify(timetables));
 
-      console.log("Selected next incomplete topic:", nextIncompleteTopic);
-
-      // If good score and next topic found, initialize a fresh session for it
-      if (isGoodScore && nextIncompleteTopic) {
-        initFreshTopicSession(subj, chap, nextIncompleteTopic, nextIncompleteIdx, updatedSession.allocatedMinutes || 60);
-        console.log("[QuizPage] Initialized fresh session for next topic:", nextIncompleteTopic);
-      }
-
-      // Update the active journey stored keys
+      // Sync active subject journey stored keys (Rule 5 & Rules compatibility)
       const journeyKeys = ['neurolearn_active_subject_journey', 'activeSubjectJourney', 'neurolearn_active_journey'];
       for (const key of journeyKeys) {
         try {
@@ -989,14 +1155,20 @@ const QuizPage = () => {
           if (raw) {
             const parsed = JSON.parse(raw);
             if (parsed && parsed.subject?.toLowerCase() === subj.toLowerCase()) {
-              if (isGoodScore && nextIncompleteTopic) {
-                parsed.currentTopic = { title: nextIncompleteTopic };
-                parsed.currentTopicIndex = nextIncompleteIdx;
-              }
+              parsed.currentTopicIndex = pObj.currentTopicIndex;
+              parsed.progress = pObj.roadmapProgressPercent;
+              const nextObj = topics[pObj.currentTopicIndex] || topics[topics.length - 1];
+              parsed.currentTopic = nextObj || null;
+              parsed.currentRoadmapTopic = nextObj?.title || 'Introductory Concepts';
               localStorage.setItem(key, JSON.stringify(parsed));
             }
           }
         } catch(e) {}
+      }
+
+      // If good score and next topic found, initialize a fresh session for it
+      if (isGoodScore && nextTopicTitle && pObj.currentTopicIndex < totalTopics) {
+        initFreshTopicSession(subj, chap, nextTopicTitle, pObj.currentTopicIndex, updatedSession.allocatedMinutes || 60);
       }
 
       console.log("Updated quiz session and timetables data:", updatedSession, timetables[timetableKey]);
