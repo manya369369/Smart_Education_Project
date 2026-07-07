@@ -7,6 +7,15 @@ const GoalSetupPage = () => {
 
   // Try to load any existing progress from localStorage
   const [formData, setFormData] = useState(() => {
+    let initialName = '';
+    try {
+      const userRaw = localStorage.getItem('neurolearn_user');
+      if (userRaw) {
+        const userObj = JSON.parse(userRaw);
+        initialName = userObj.name || '';
+      }
+    } catch (e) {}
+
     try {
       const saved = localStorage.getItem('neurolearn_goal_data');
       const savedStudentType = localStorage.getItem('neurolearn_student_type') || '';
@@ -14,8 +23,8 @@ const GoalSetupPage = () => {
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
-          name: parsed.name || '',
-          examGoal: parsed.examGoal || '',
+          name: parsed.name || initialName || '',
+          examGoal: 'General Learning',
           examDate: parsed.examDate || '',
           studyTime: parsed.studyTime || '',
           studentType: savedStudentType || parsed.studentType || '',
@@ -26,8 +35,8 @@ const GoalSetupPage = () => {
       console.error("Error reading from localStorage", e);
     }
     return {
-      name: '',
-      examGoal: '',
+      name: initialName || '',
+      examGoal: 'General Learning',
       examDate: '',
       studyTime: '',
       studentType: '',
@@ -147,28 +156,6 @@ const GoalSetupPage = () => {
               placeholder="Enter your name"
               className="form-input"
             />
-          </div>
-
-          {/* 2. Exam Goal */}
-          <div className="form-group">
-            <label htmlFor="exam-goal-select" className="form-label">
-              What are you preparing for?
-            </label>
-            <select
-              id="exam-goal-select"
-              name="examGoal"
-              value={formData.examGoal}
-              onChange={handleInputChange}
-              className="form-select"
-            >
-              <option value="" disabled>Select your exam goal</option>
-              <option value="Semester Exam">Semester Exam</option>
-              <option value="JEE">JEE</option>
-              <option value="NEET">NEET</option>
-              <option value="GATE">GATE</option>
-              <option value="School Exam">School Exam</option>
-              <option value="Other">Other</option>
-            </select>
           </div>
 
           {/* 3. Student Type (School vs College) */}

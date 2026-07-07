@@ -169,8 +169,15 @@ const DashboardPage = () => {
     sessionStorage.setItem('neurolearn_dashboard_popup_seen', 'true');
   };
 
-  // BUG 1 FIX: Always use name from neurolearn_goal_data (never demo/hardcoded)
-  const studentName = goal?.name || 'Learner';
+  let userName = '';
+  try {
+    const userRaw = localStorage.getItem('neurolearn_user');
+    if (userRaw) {
+      const userObj = JSON.parse(userRaw);
+      userName = userObj.name;
+    }
+  } catch (e) {}
+  const studentName = userName || goal?.name || 'Learner';
   const examGoal = goal?.goal || goal?.examGoal || 'General Study';
   const examDate = goal?.examDate || '';
 
@@ -218,6 +225,11 @@ const DashboardPage = () => {
     };
     return () => { delete window.resetNeurolearnSession; };
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('neurolearn_user');
+    navigate('/login');
+  };
 
   // ============================================================
   // BUG 4 & 5 FIX: Use state + useEffect instead of useMemo([])
@@ -786,9 +798,18 @@ const DashboardPage = () => {
         
         {/* PAGE HEADER */}
         <header className="dashboard-header animate-slideUp">
-          <div className="header-title-container">
-            <h1 className="header-title">Welcome Back, {studentName}</h1>
-            <p className="header-subtitle">Your personalized AI learning dashboard is ready.</p>
+          <div className="header-title-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '1.5rem', flexWrap: 'wrap' }}>
+            <div>
+              <h1 className="header-title">Welcome Back, {studentName}</h1>
+              <p className="header-subtitle">Your personalized AI learning dashboard is ready.</p>
+            </div>
+            <button 
+              onClick={handleLogout} 
+              className="back-button"
+              style={{ position: 'static', margin: 0 }}
+            >
+              Logout
+            </button>
           </div>
           <div className="header-meta-grid">
             <div className="meta-badge-card">

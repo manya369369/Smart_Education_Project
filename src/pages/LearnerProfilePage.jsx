@@ -176,7 +176,15 @@ const LearnerProfilePage = () => {
   useEffect(() => {
     if (!dataState.isInvalid) {
       const { result, goal } = dataState;
-      const studentName = goal.name || 'Learner';
+      let userName = '';
+      try {
+        const userRaw = localStorage.getItem('neurolearn_user');
+        if (userRaw) {
+          const userObj = JSON.parse(userRaw);
+          userName = userObj.name;
+        }
+      } catch (e) {}
+      const studentName = userName || goal.name || 'Learner';
       const primarySubject = result.primarySubject || goal.subjects?.[0] || 'General Learning';
       const selectedSubjects = goal.subjects || [primarySubject];
       const currentLevel = result.currentLevel || 'Beginner';
