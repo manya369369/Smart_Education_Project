@@ -14,17 +14,106 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
-
 const PORT = process.env.PORT || 5000;
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
 app.get('/api/health', (req, res) => {
   res.json({
     status: "ok",
     message: "Backend running",
     geminiKeyLoaded: !!process.env.GEMINI_API_KEY,
-    model: "gemini-2.5-flash"
+    model: GEMINI_MODEL
   });
 });
+
+async function callGeminiWithRetry(prompt, apiKey, requestType = "AI") {
+  if (!apiKey) {
+    console.log("Gemini API Key Missing");
+    throw new Error("Gemini API Key Missing");
+  }
+
+  const delays = [2000, 4000, 6000];
+  let attempt = 0;
+
+  console.log(`--------------------------------
+${requestType} Request Started
+Model :
+${GEMINI_MODEL}`);
+
+  while (true) {
+    try {
+      attempt++;
+      console.log(`Attempt ${attempt}`);
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        }
+      );
+
+      if (response.status === 429 || response.status === 500 || response.status === 502 || response.status === 503) {
+        throw { status: response.status, message: `HTTP ${response.status} Error` };
+      }
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        let parsedErr;
+        try {
+          parsedErr = JSON.parse(errText);
+        } catch (e) {}
+
+        const isModelUnsupported = response.status === 404 || 
+          response.status === 400 || 
+          (parsedErr && parsedErr.error && (
+            parsedErr.error.message.includes('not found') || 
+            parsedErr.error.message.includes('not supported') || 
+            parsedErr.error.message.includes('unsupported')
+          ));
+
+        if (isModelUnsupported) {
+          console.log("Invalid Gemini model");
+          throw new Error("Invalid Gemini model");
+        }
+
+        throw new Error(`Gemini API HTTP ${response.status}: ${errText}`);
+      }
+
+      console.log(`Success\n--------------------------------`);
+      return response;
+    } catch (error) {
+      const status = error.status;
+      const isRetryable = status === 429 || status === 500 || status === 502 || status === 503;
+
+      if (isRetryable) {
+        if (status === 429) {
+          console.log("Quota Exceeded");
+        } else if (status === 503) {
+          console.log("Gemini Server Busy\nRetrying...");
+        }
+
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
+          continue;
+        } else {
+          console.log(`--------------------------------
+Gemini unavailable
+Retry failed
+Switching to fallback
+--------------------------------`);
+        }
+      }
+      throw error;
+    }
+  }
+}
+
 
 function cleanGeminiJson(text) {
   if (!text) return "";
@@ -375,24 +464,7 @@ Return ONLY valid JSON in this exact format:
       attempts++;
       console.log(`[Assessment] Gemini call attempt ${attempts} of ${maxAttempts} for ${subject}`);
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        console.log("GEMINI STATUS:", response.status);
-        const errText = await response.text();
-        console.log("GEMINI ERROR BODY:", errText);
-        throw new Error(`Gemini API HTTP ${response.status}: ${errText}`);
-      }
+      const response = await callGeminiWithRetry(prompt, apiKey);
 
       const data = await response.json();
       const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -542,7 +614,7 @@ app.post('/api/generate-assessment', async (req, res) => {
 app.post('/api/generate-notes', async (req, res) => {
   const { topic, subject } = req.body;
   console.log(`[Backend] Generating study notes for topic: ${topic} under subject: ${subject}`);
-  console.log("[Backend] Using Gemini model: gemini-2.5-flash");
+  console.log(`[Backend] Using Gemini model: ${GEMINI_MODEL}`);
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -578,23 +650,7 @@ Rules:
 - No extra explanation outside JSON.`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[Backend] Gemini API responded with error status ${response.status}:`, errText);
-      return res.status(response.status).json({ error: `Gemini API returned error: ${response.statusText}` });
-    }
+    const response = await callGeminiWithRetry(prompt, apiKey);
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -614,7 +670,7 @@ Rules:
 app.post('/api/generate-video-script', async (req, res) => {
   const { topic, subject } = req.body;
   console.log(`[Backend] Generating video script for topic: ${topic} under subject: ${subject}`);
-  console.log("[Backend] Using Gemini model: gemini-2.5-flash");
+  console.log(`[Backend] Using Gemini model: ${GEMINI_MODEL}`);
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -647,23 +703,7 @@ Rules:
 - Keep the voiceover clear and engaging.`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`[Backend] Gemini API responded with error status ${response.status}:`, errText);
-      return res.status(response.status).json({ error: `Gemini API returned error` });
-    }
+    const response = await callGeminiWithRetry(prompt, apiKey);
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -708,21 +748,7 @@ Return JSON only in the following format:
 }`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: "Gemini API error" });
-    }
+    const response = await callGeminiWithRetry(prompt, apiKey);
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -766,21 +792,7 @@ Return JSON only in the following format:
 ]`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: "Gemini API error" });
-    }
+    const response = await callGeminiWithRetry(prompt, apiKey);
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -829,21 +841,7 @@ Return JSON only in the following format:
 ]`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: "Gemini API error" });
-    }
+    const response = await callGeminiWithRetry(prompt, apiKey);
 
     const data = await response.json();
     console.log("GEMINI RAW RESPONSE:", JSON.stringify(data, null, 2));
@@ -1004,19 +1002,7 @@ Example for "Quadratic Equations" in Mathematics:
 Now generate for "${chapter}" in "${subject}":`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fallbackPrompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-
-    if (!response.ok) throw new Error(`Fallback API HTTP ${response.status}`);
+    const response = await callGeminiWithRetry(fallbackPrompt, apiKey);
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1080,18 +1066,7 @@ app.post('/api/generate-roadmap', async (req, res) => {
   }
 
   const callGemini = async (prompt) => {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' }
-        })
-      }
-    );
-    if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`);
+    const response = await callGeminiWithRetry(prompt, apiKey);
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('Empty Gemini response');
@@ -1158,4 +1133,11 @@ function normalizeRoadmapResponse(parsed, defaultSubject, defaultChapter) {
 
 app.listen(PORT, () => {
   console.log(`[Backend] Server is running on port ${PORT}`);
+  const apiKeyLoaded = process.env.GEMINI_API_KEY ? "YES" : "NO";
+  console.log(`========================================
+Gemini API Loaded Successfully
+API Key Loaded : ${apiKeyLoaded}
+Using Model :
+${GEMINI_MODEL}
+========================================`);
 });
