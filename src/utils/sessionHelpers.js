@@ -584,18 +584,17 @@ export const generateRoadmapKey = (studentType, classOrSemester, subject, chapte
  */
 export const getTopicAttemptId = (roadmapKey, topicIndex) => {
   const normIndex = typeof topicIndex === 'number' ? topicIndex : 0;
-  const attemptsKey = `neurolearn_topic_attempts`;
   try {
-    const raw = localStorage.getItem(attemptsKey);
+    const raw = localStorage.getItem('neurolearn_subject_progress');
     if (raw) {
-      const parsed = JSON.parse(raw);
-      const key = `${roadmapKey}__topic_${normIndex}`;
-      if (parsed && typeof parsed[key] === 'number') {
-        return parsed[key];
+      const progressMap = JSON.parse(raw);
+      const pObj = progressMap[roadmapKey];
+      if (pObj && pObj.currentTopicIndex === normIndex) {
+        return pObj.activeAttemptId || "main";
       }
     }
   } catch (e) {}
-  return 1; // Default first attempt
+  return "main"; // Default first attempt
 };
 
 /**

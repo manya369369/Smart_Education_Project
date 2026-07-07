@@ -453,8 +453,12 @@ const getOrCreateSession = (subject, chapter, topic, topicIndex, allocatedMinute
       quizCompleted: false,
       quizAttempted: false,
       quizScore: null,
+      topicProgressPercent: 0,
+      topicCompleted: false,
+      createdAt: new Date().toISOString(),
       lastUpdated: new Date().toISOString()
     };
+    console.log('[LearningPage] Created FRESH session for key:', sessionKey);
     localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
   } else {
     let updated = false;
@@ -769,8 +773,10 @@ const LearningPage = () => {
         quizScore: null,
         topicProgressPercent: 0,
         topicCompleted: false,
+        createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString()
       };
+      console.log('[LearningPage] Created FRESH session in updateSessionCompletion for key:', sessionKey);
     }
 
     const s = sessions[sessionKey];

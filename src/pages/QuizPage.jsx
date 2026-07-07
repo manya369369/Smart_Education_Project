@@ -358,6 +358,34 @@ const safeParseAllocatedMinutes = (value) => {
 
 const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedMinutes, fields) => {
   const sessionKey = resolveSessionKey(subject, chapter, topic, topicIndex);
+
+  let goal = null;
+  let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+  let studentType = localStorage.getItem('neurolearn_student_type') || '';
+  try {
+    const savedGoal = localStorage.getItem('neurolearn_goal_data');
+    if (savedGoal) goal = JSON.parse(savedGoal);
+  } catch (e) {}
+  try {
+    const savedSetup = localStorage.getItem('neurolearn_setup_data');
+    if (savedSetup) {
+      const setup = JSON.parse(savedSetup);
+      if (!cos) cos = setup.classOrSemester || '';
+      if (!studentType) studentType = setup.studentType || '';
+    }
+  } catch (e) {}
+  const gVal = goal?.goal || goal?.examGoal || 'General Study';
+  const resolved = resolveClassAndSemester(studentType, cos);
+  const roadmapKey = createRoadmapKey({
+    studentType,
+    classLevel: resolved.classLevel,
+    semester: resolved.semester,
+    subject,
+    chapter,
+    examGoal: gVal
+  });
+  const attemptId = getTopicAttemptId(roadmapKey, topicIndex);
+
   const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
   let sessions = {};
   if (sessionsRaw) {
@@ -370,6 +398,9 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
 
   if (!sessions[sessionKey]) {
     sessions[sessionKey] = {
+      roadmapKey,
+      topicIndex: typeof topicIndex === 'number' ? topicIndex : 0,
+      attemptId,
       subject,
       chapter,
       allocatedMinutes: allocatedMinutes || 60,
@@ -389,6 +420,7 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
       quizScore: null,
       topicProgressPercent: 0,
       topicCompleted: false,
+      createdAt: new Date().toISOString(),
       lastUpdated: new Date().toISOString()
     };
   }
@@ -1090,6 +1122,7 @@ const QuizPage = () => {
           completedTopicIndexes: [],
           revisionScheduled: false,
           revisionTopicIndex: null,
+          activeAttemptId: 'main',
           lastQuizScore: null,
           roadmapProgressPercent: 0,
           lastUpdated: new Date().toISOString()
@@ -1110,10 +1143,15 @@ const QuizPage = () => {
         pObj.currentTopicIndex = nextIncompleteIdx !== -1 ? nextIncompleteIdx : topics.length;
         pObj.revisionScheduled = false;
         pObj.revisionTopicIndex = null;
+        pObj.activeAttemptId = "main";
+        
+        // Clear current learning task for old topic
+        localStorage.removeItem('neurolearn_current_learning_task');
       } else {
         // currentTopicIndex remains same
         pObj.revisionScheduled = true;
         pObj.revisionTopicIndex = currIdx;
+        pObj.activeAttemptId = "revision_" + Date.now();
       }
       pObj.lastQuizScore = percentage;
       pObj.roadmapProgressPercent = Math.round((pObj.completedTopicIndexes.length / totalTopics) * 100);
@@ -1123,6 +1161,50 @@ const QuizPage = () => {
       progressMap[roadmapKey] = pObj;
       progressMap[subj] = pObj; // Fallback sync
       localStorage.setItem('neurolearn_subject_progress', JSON.stringify(progressMap));
+
+      // Create a fresh session for the scheduled topic/revision
+      const nextTopicIdx = pObj.currentTopicIndex < totalTopics ? pObj.currentTopicIndex : (totalTopics - 1);
+      const nextTopicObj = topics[nextTopicIdx];
+      if (nextTopicObj) {
+        // Generate key using the new state
+        const nextSessionKey = resolveSessionKey(subj, chap, nextTopicObj.title, nextTopicIdx);
+        
+        let sessions = {};
+        try {
+          sessions = JSON.parse(localStorage.getItem('neurolearn_learning_sessions')) || {};
+        } catch (e) {
+          sessions = {};
+        }
+        
+        sessions[nextSessionKey] = {
+          roadmapKey,
+          topicIndex: nextTopicIdx,
+          attemptId: pObj.activeAttemptId || "main",
+          subject: subj,
+          chapter: chap,
+          allocatedMinutes: allocMins || 60,
+          currentTopic: nextTopicObj.title,
+          currentTopicIndex: nextTopicIdx,
+          videoSeconds: 0,
+          notesSeconds: 0,
+          quizSeconds: 0,
+          totalSecondsSpent: 0,
+          remainingSeconds: (allocMins || 60) * 60,
+          videoCompleted: false,
+          videoCompletedAt: null,
+          notesCompleted: false,
+          notesCompletedAt: null,
+          quizCompleted: false,
+          quizCompletedAt: null,
+          quizScore: null,
+          topicProgressPercent: 0,
+          topicCompleted: false,
+          createdAt: new Date().toISOString(),
+          lastUpdated: new Date().toISOString()
+        };
+        localStorage.setItem('neurolearn_learning_sessions', JSON.stringify(sessions));
+        console.log(`[QuizPage] Generated fresh session for scheduled topic/revision: ${nextSessionKey}`);
+      }
 
       // Console logs as requested (Step 1)
       console.log("QUIZ SUBMITTED:", {
@@ -1136,7 +1218,6 @@ const QuizPage = () => {
       console.log("PROGRESS AFTER QUIZ:", pObj);
 
       // 5. Generate study plan timetable ONLY
-      const nextTopicIdx = pObj.currentTopicIndex < totalTopics ? pObj.currentTopicIndex : (totalTopics - 1);
       const nextTopicTitle = isGoodScore ? (topics[nextTopicIdx]?.title || topicInfo.topic) : topicInfo.topic;
       const isRevision = !isGoodScore;
 
