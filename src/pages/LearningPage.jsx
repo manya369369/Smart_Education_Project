@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/LearningPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, syncSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, syncSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, incrementStudyTime } from '../utils/sessionHelpers';
 
 // --- Dynamic Mock & Fallback Data Generators ---
 
@@ -1019,6 +1019,87 @@ const LearningPage = () => {
       clearInterval(interval);
     };
   }, [topic, currentTask]);
+
+  // Dedicated Time Tracking module for Video and Notes
+  const pendingVideoSecondsRef = useRef(0);
+  const pendingNotesSecondsRef = useRef(0);
+  const lastPersistRef = useRef(Date.now());
+
+  useEffect(() => {
+    if (!currentTask || !resolvedTopicObj) return;
+
+    // Resolve roadmapKey
+    let goal = null;
+    let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+    let studentType = localStorage.getItem('neurolearn_student_type') || '';
+    const savedGoal = localStorage.getItem('neurolearn_goal_data');
+    if (savedGoal) goal = JSON.parse(savedGoal);
+    const savedSetup = localStorage.getItem('neurolearn_setup_data');
+    if (savedSetup) {
+      const setup = JSON.parse(savedSetup);
+      if (!cos) cos = setup.classOrSemester || '';
+      if (!studentType) studentType = setup.studentType || '';
+    }
+    const gVal = goal?.goal || goal?.examGoal || 'General Study';
+    const resolved = resolveClassAndSemester(studentType, cos);
+    const roadmapKey = createRoadmapKey({
+      studentType,
+      classLevel: resolved.classLevel,
+      semester: resolved.semester,
+      subject: currentTask.subject,
+      chapter: currentTask.chapter,
+      examGoal: gVal
+    });
+
+    const topicIndex = resolvedTopicObj.index;
+
+    const persistTime = () => {
+      const vSec = pendingVideoSecondsRef.current;
+      const nSec = pendingNotesSecondsRef.current;
+      if (vSec > 0) {
+        incrementStudyTime(roadmapKey, topicIndex, 'video', vSec);
+        pendingVideoSecondsRef.current = 0;
+      }
+      if (nSec > 0) {
+        incrementStudyTime(roadmapKey, topicIndex, 'notes', nSec);
+        pendingNotesSecondsRef.current = 0;
+      }
+      lastPersistRef.current = Date.now();
+    };
+
+    const interval = setInterval(() => {
+      const isVisible = document.visibilityState === 'visible' && document.hasFocus();
+
+      // Video Timer Condition: starts only when Video tab is active and video is playing
+      if (activeTab === 'video' && isPlaying && !videoCompleted && isVisible) {
+        pendingVideoSecondsRef.current += 1;
+      }
+
+      // Notes Timer Condition: starts when Notes page is open
+      if (activeTab === 'notes' && isVisible) {
+        pendingNotesSecondsRef.current += 1;
+      }
+
+      // Persist every 5 seconds
+      if (Date.now() - lastPersistRef.current >= 5000) {
+        persistTime();
+      }
+    }, 1000);
+
+    const handleUnloadAndVisibility = () => {
+      persistTime();
+    };
+
+    window.addEventListener('beforeunload', handleUnloadAndVisibility);
+    document.addEventListener('visibilitychange', handleUnloadAndVisibility);
+
+    return () => {
+      persistTime();
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnloadAndVisibility);
+      document.removeEventListener('visibilitychange', handleUnloadAndVisibility);
+    };
+  }, [currentTask, resolvedTopicObj, activeTab, isPlaying, videoCompleted]);
 
   // Load video scenes on mount
   useEffect(() => {

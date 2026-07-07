@@ -660,3 +660,76 @@ export const resolveSessionKey = (subject, chapter, topic, topicIndex) => {
   // 3. Return attempts-isolated session key
   return `${roadmapKey}__topic_${normIndex}__attempt_${attemptId}`;
 };
+
+// Time tracking helpers
+export function getTimeTrackingData() {
+  try {
+    const raw = localStorage.getItem('neurolearn_time_tracking');
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function saveTimeTrackingData(data) {
+  try {
+    localStorage.setItem('neurolearn_time_tracking', JSON.stringify(data));
+  } catch (e) {}
+}
+
+export function incrementStudyTime(roadmapKey, topicIndex, type, seconds) {
+  const data = getTimeTrackingData();
+  if (!data[roadmapKey]) {
+    data[roadmapKey] = {
+      subjectTotalSeconds: 0
+    };
+  }
+  const tIdx = String(topicIndex);
+  if (!data[roadmapKey][tIdx]) {
+    data[roadmapKey][tIdx] = {
+      videoStudySeconds: 0,
+      notesStudySeconds: 0,
+      quizStudySeconds: 0,
+      totalStudySeconds: 0,
+      lastUpdated: new Date().toISOString()
+    };
+  }
+  
+  const record = data[roadmapKey][tIdx];
+  if (type === 'video') {
+    record.videoStudySeconds = (record.videoStudySeconds || 0) + seconds;
+  } else if (type === 'notes') {
+    record.notesStudySeconds = (record.notesStudySeconds || 0) + seconds;
+  } else if (type === 'quiz') {
+    record.quizStudySeconds = (record.quizStudySeconds || 0) + seconds;
+  }
+  
+  record.totalStudySeconds = (record.videoStudySeconds || 0) + 
+                             (record.notesStudySeconds || 0) + 
+                             (record.quizStudySeconds || 0);
+  record.lastUpdated = new Date().toISOString();
+  
+  // Recalculate subjectTotalSeconds
+  let sum = 0;
+  for (const k in data[roadmapKey]) {
+    if (k !== 'subjectTotalSeconds' && data[roadmapKey][k]) {
+      sum += data[roadmapKey][k].totalStudySeconds || 0;
+    }
+  }
+  data[roadmapKey].subjectTotalSeconds = sum;
+  
+  saveTimeTrackingData(data);
+}
+
+export function formatDashboardTime(totalSeconds) {
+  if (totalSeconds === undefined || totalSeconds === null || totalSeconds <= 0) return "0 sec";
+  if (totalSeconds < 60) {
+    return `${totalSeconds} sec`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (seconds === 0) {
+    return `${minutes} min`;
+  }
+  return `${minutes} min ${seconds} sec`;
+}

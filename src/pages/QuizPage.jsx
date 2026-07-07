@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/QuizPage.css';
-import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics, syncSubjectProgress, resolveSessionKey, incrementTopicAttempt, getTopicAttemptId, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, saveCompletedTopic, initFreshTopicSession, getCompletedTopics, syncSubjectProgress, resolveSessionKey, incrementTopicAttempt, getTopicAttemptId, createRoadmapKey, resolveClassAndSemester, incrementStudyTime } from '../utils/sessionHelpers';
 
 // Curated question pools for popular topics
 const CURATED_POOLS = {
@@ -609,6 +609,77 @@ const QuizPage = () => {
     };
   }, [topicInfo]);
 
+  // Dedicated Time Tracking module for Quiz
+  const lastPersistRef = useRef(Date.now());
+  const pendingQuizSecondsRef = useRef(0);
+  const isSubmittedRef = useRef(false);
+
+  useEffect(() => {
+    if (topicInfo.hasNoData || isLoading || activeQuestions.length === 0) return;
+
+    // Resolve roadmapKey
+    let goal = null;
+    let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+    let studentType = localStorage.getItem('neurolearn_student_type') || '';
+    const savedGoal = localStorage.getItem('neurolearn_goal_data');
+    if (savedGoal) goal = JSON.parse(savedGoal);
+    const savedSetup = localStorage.getItem('neurolearn_setup_data');
+    if (savedSetup) {
+      const setup = JSON.parse(savedSetup);
+      if (!cos) cos = setup.classOrSemester || '';
+      if (!studentType) studentType = setup.studentType || '';
+    }
+    const gVal = goal?.goal || goal?.examGoal || 'General Study';
+    const resolved = resolveClassAndSemester(studentType, cos);
+    const roadmapKey = createRoadmapKey({
+      studentType,
+      classLevel: resolved.classLevel,
+      semester: resolved.semester,
+      subject: topicInfo.task?.subject || topicInfo.subject || "General Learning",
+      chapter: topicInfo.task?.chapter || "General Foundations",
+      examGoal: gVal
+    });
+
+    const topicIndex = topicInfo.task?.currentTopicIndex || 0;
+
+    const persistTime = () => {
+      const qSec = pendingQuizSecondsRef.current;
+      if (qSec > 0) {
+        incrementStudyTime(roadmapKey, topicIndex, 'quiz', qSec);
+        pendingQuizSecondsRef.current = 0;
+      }
+      lastPersistRef.current = Date.now();
+    };
+
+    const interval = setInterval(() => {
+      const isVisible = document.visibilityState === 'visible' && document.hasFocus();
+
+      // Quiz Timer Condition: question is visible, not submitted, and tab is visible/focused
+      if (!isSubmittedRef.current && isVisible) {
+        pendingQuizSecondsRef.current += 1;
+      }
+
+      // Persist every 5 seconds
+      if (Date.now() - lastPersistRef.current >= 5000) {
+        persistTime();
+      }
+    }, 1000);
+
+    const handleUnloadAndVisibility = () => {
+      persistTime();
+    };
+
+    window.addEventListener('beforeunload', handleUnloadAndVisibility);
+    document.addEventListener('visibilitychange', handleUnloadAndVisibility);
+
+    return () => {
+      persistTime();
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnloadAndVisibility);
+      document.addEventListener('visibilitychange', handleUnloadAndVisibility);
+    };
+  }, [topicInfo, isLoading, activeQuestions]);
+
   // Fetch quiz questions from backend
   useEffect(() => {
     let active = true;
@@ -790,6 +861,37 @@ const QuizPage = () => {
     e.preventDefault();
     const currentQ = activeQuestions[currentIndex];
     if (!currentQ) return;
+
+    isSubmittedRef.current = true;
+    // Flush pending quiz study time
+    if (pendingQuizSecondsRef.current > 0) {
+      try {
+        let goal = null;
+        let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
+        let studentType = localStorage.getItem('neurolearn_student_type') || '';
+        const savedGoal = localStorage.getItem('neurolearn_goal_data');
+        if (savedGoal) goal = JSON.parse(savedGoal);
+        const savedSetup = localStorage.getItem('neurolearn_setup_data');
+        if (savedSetup) {
+          const setup = JSON.parse(savedSetup);
+          if (!cos) cos = setup.classOrSemester || '';
+          if (!studentType) studentType = setup.studentType || '';
+        }
+        const gVal = goal?.goal || goal?.examGoal || 'General Study';
+        const resolved = resolveClassAndSemester(studentType, cos);
+        const roadmapKey = createRoadmapKey({
+          studentType,
+          classLevel: resolved.classLevel,
+          semester: resolved.semester,
+          subject: topicInfo.task?.subject || topicInfo.subject || "General Learning",
+          chapter: topicInfo.task?.chapter || "General Foundations",
+          examGoal: gVal
+        });
+        const topicIndex = topicInfo.task?.currentTopicIndex || 0;
+        incrementStudyTime(roadmapKey, topicIndex, 'quiz', pendingQuizSecondsRef.current);
+        pendingQuizSecondsRef.current = 0;
+      } catch (err) {}
+    }
 
     // Validate final selection
     const selectedAns = userAnswers[currentQ.id];

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/DashboardPage.css';
-import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, formatDashboardTime, getTimeTrackingData } from '../utils/sessionHelpers';
 
 // Animated counter component for numbers
 const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
@@ -388,9 +388,24 @@ const DashboardPage = () => {
       let topicProgressPercent = 0;
       let revisionScheduled = isRevision;
       let topicCompleted = false;
-      let spentSeconds = 0;
-      let remainingSeconds = (journey.recommendedStudyTime || 60) * 60;
       let sessionAllocatedMinutes = journey.recommendedStudyTime || 60;
+
+      // Read time tracked in the independent time storage
+      let spentSeconds = 0;
+      try {
+        const timeData = getTimeTrackingData();
+        const roadmapTracking = timeData[roadmapKey];
+        if (roadmapTracking) {
+          const topicTrack = roadmapTracking[String(displayIdx)];
+          if (topicTrack) {
+            spentSeconds = topicTrack.totalStudySeconds || 0;
+          }
+        }
+      } catch (e) {
+        console.error("Error reading time tracking:", e);
+      }
+      
+      let remainingSeconds = Math.max(0, (sessionAllocatedMinutes * 60) - spentSeconds);
 
       const sessionKey = resolveSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx);
       console.log("Current learning session key:", sessionKey);
@@ -407,9 +422,8 @@ const DashboardPage = () => {
             topicProgressPercent = calcProg;
             revisionScheduled = !!(session.revisionScheduled || session.needsRevision) || revisionScheduled;
             topicCompleted = !!session.topicCompleted;
-            spentSeconds = session.totalSecondsSpent || 0;
-            remainingSeconds = session.remainingSeconds ?? ((session.allocatedMinutes || 60) * 60);
             sessionAllocatedMinutes = session.allocatedMinutes || 60;
+            remainingSeconds = Math.max(0, (sessionAllocatedMinutes * 60) - spentSeconds);
           }
         }
       } catch (e) {}
@@ -453,6 +467,10 @@ const DashboardPage = () => {
   useEffect(() => {
     refreshTodayStudy();
 
+    const interval = setInterval(() => {
+      refreshTodayStudy();
+    }, 1000);
+
     const handleFocus = () => {
       console.log("[DashboardPage] Window focused — refreshing time data");
       refreshTodayStudy();
@@ -466,6 +484,7 @@ const DashboardPage = () => {
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
+      clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
@@ -473,27 +492,16 @@ const DashboardPage = () => {
 
   const popupMessage = useMemo(() => {
     if (!todayStudy) return "";
-    const subject = todayStudy.subject;
-    const topic = todayStudy.topicTitle;
-
     const spentSeconds = todayStudy.spentSeconds || 0;
     const allocatedMinutes = todayStudy.allocatedTime || 60;
     const remainingSeconds = todayStudy.remainingSeconds ?? (allocatedMinutes * 60);
 
-    if (activeSession) {
-      if (activeSession.needsRevision || activeSession.revisionScheduled) {
-        return `Your quiz score was low. Revision is scheduled. You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today.`;
-      }
-      if (activeSession.quizCompleted && activeSession.quizScore >= 70 && activeSession.topicCompleted) {
-        return `Great work! Your previous topic is completed. You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today. The next roadmap topic has been scheduled.`;
-      }
-      if (activeSession.remainingSeconds <= 0) {
-        return `You have completed today's allocated study time for ${subject}. Great work!`;
-      }
+    if (remainingSeconds <= 0) {
+      return "You have completed today's allocated study time.";
     }
 
-    return `You studied for ${formatStudyTime(spentSeconds)} out of ${allocatedMinutes} minutes. You still have ${formatStudyTime(remainingSeconds)} left today. You can continue studying ${subject}.`;
-  }, [todayStudy, activeSession]);
+    return `You studied ${formatDashboardTime(spentSeconds)} today. You still have ${formatDashboardTime(remainingSeconds)} remaining. You may continue the current subject.`;
+  }, [todayStudy]);
 
   // Format Date for UI display
   const formattedExamDate = useMemo(() => {
@@ -784,10 +792,6 @@ const DashboardPage = () => {
           </div>
           <div className="header-meta-grid">
             <div className="meta-badge-card">
-              <span className="meta-label">Goal Target</span>
-              <strong className="meta-value">{examGoal}</strong>
-            </div>
-            <div className="meta-badge-card">
               <span className="meta-label">Exam Date</span>
               <strong className="meta-value">{formattedExamDate}</strong>
             </div>
@@ -832,9 +836,9 @@ const DashboardPage = () => {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
                   <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>📚 Chapter: <strong style={{ color: '#e2e8f0' }}>{todayStudy.chapter}</strong></span>
                   <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏱️ Estimated: <strong style={{ color: '#818cf8' }}>{todayStudy.estimatedMinutes} min</strong></span>
-                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>🎯 Allocated: <strong style={{ color: '#34d399' }}>{todayStudy.allocatedTime} min</strong></span>
-                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏳ Spent: <strong style={{ color: '#fbbf24' }}>{formatStudyTime(todayStudy.spentSeconds)}</strong></span>
-                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏰ Remaining: <strong style={{ color: '#f87171' }}>{formatStudyTime(todayStudy.remainingSeconds)}</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>🎯 Allocated Study Time: <strong style={{ color: '#34d399' }}>{todayStudy.allocatedTime} min</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏳ Actual Study Time: <strong style={{ color: '#fbbf24' }}>{formatDashboardTime(todayStudy.spentSeconds)}</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>⏰ Remaining Study Time: <strong style={{ color: '#f87171' }}>{formatDashboardTime(todayStudy.remainingSeconds)}</strong></span>
                   <span className={`badge badge-${todayStudy.difficulty.toLowerCase()}`} style={{ fontSize: '0.8rem' }}>{todayStudy.difficulty}</span>
                 </div>
 
