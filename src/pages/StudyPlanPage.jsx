@@ -63,9 +63,9 @@ const StudyPlanPage = () => {
 
   const activeJourneyStudy = useMemo(() => {
     try {
-      const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') || 
-                         localStorage.getItem('activeSubjectJourney') || 
-                         localStorage.getItem('neurolearn_active_journey');
+      const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') ||
+        localStorage.getItem('activeSubjectJourney') ||
+        localStorage.getItem('neurolearn_active_journey');
       if (!journeyRaw) return null;
       const journey = JSON.parse(journeyRaw);
       if (!journey || !journey.subject) return null;
@@ -87,7 +87,7 @@ const StudyPlanPage = () => {
 
       let matchingRoadmap = allRoadmaps.find(
         r => r.subject?.toLowerCase() === journey.subject?.toLowerCase() &&
-             r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
+          r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
       );
       if (!matchingRoadmap) {
         matchingRoadmap = allRoadmaps.find(
@@ -108,7 +108,7 @@ const StudyPlanPage = () => {
       try {
         const savedGoal = localStorage.getItem('neurolearn_goal_data');
         if (savedGoal) goal = JSON.parse(savedGoal);
-      } catch (e) {}
+      } catch (e) { }
       try {
         const savedSetup = localStorage.getItem('neurolearn_setup_data');
         if (savedSetup) {
@@ -116,7 +116,7 @@ const StudyPlanPage = () => {
           if (!cos) cos = setup.classOrSemester || '';
           if (!studentType) studentType = setup.studentType || '';
         }
-      } catch (e) {}
+      } catch (e) { }
       const gVal = goal?.goal || goal?.examGoal || 'General Study';
       const resolved = resolveClassAndSemester(studentType, cos);
       const roadmapKey = createRoadmapKey({
@@ -138,7 +138,7 @@ const StudyPlanPage = () => {
             savedProgress = parsed[roadmapKey];
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
       let completedTopicIndexes = [];
@@ -151,7 +151,7 @@ const StudyPlanPage = () => {
       let progressMap = {};
       try {
         progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
-      } catch (e) {}
+      } catch (e) { }
       let progress = progressMap[roadmapKey];
       if (!progress) {
         progress = {
@@ -221,7 +221,7 @@ const StudyPlanPage = () => {
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       // Adjust overall progress to account for current topic session micro-progress if not fully completed
       if (!savedProgress) {
@@ -380,14 +380,14 @@ const StudyPlanPage = () => {
     if (!subj) {
       try {
         const raw = localStorage.getItem('neurolearn_active_subject_journey') ||
-                    localStorage.getItem('activeSubjectJourney') ||
-                    localStorage.getItem('neurolearn_active_journey');
+          localStorage.getItem('activeSubjectJourney') ||
+          localStorage.getItem('neurolearn_active_journey');
         if (raw) {
           const parsed = JSON.parse(raw);
           subj = parsed.subject;
           chap = parsed.chapter;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!subj) {
@@ -401,7 +401,7 @@ const StudyPlanPage = () => {
     try {
       const savedGoal = localStorage.getItem('neurolearn_goal_data');
       if (savedGoal) goalData = JSON.parse(savedGoal);
-    } catch (e) {}
+    } catch (e) { }
     try {
       const savedSetup = localStorage.getItem('neurolearn_setup_data');
       if (savedSetup) {
@@ -409,7 +409,7 @@ const StudyPlanPage = () => {
         if (!cos) cos = setup.classOrSemester || '';
         if (!studentType) studentType = setup.studentType || '';
       }
-    } catch (e) {}
+    } catch (e) { }
     const gVal = goalData?.goal || goalData?.examGoal || 'General Study';
     const resolved = resolveClassAndSemester(studentType, cos);
     const roadmapKey = createRoadmapKey({
@@ -425,7 +425,7 @@ const StudyPlanPage = () => {
     try {
       const roadmapsMap = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
       matchingRoadmap = roadmapsMap[roadmapKey];
-    } catch (e) {}
+    } catch (e) { }
 
     if (!matchingRoadmap) {
       const roadmapKeys = ['roadmaps', 'neurolearn_roadmaps', 'neurolearn_generated_roadmaps', 'neurolearn_ai_roadmap'];
@@ -440,11 +440,11 @@ const StudyPlanPage = () => {
               break;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       matchingRoadmap = allRoadmaps.find(
         r => r.subject?.toLowerCase() === subj.toLowerCase() &&
-             r.chapter?.toLowerCase() === chap.toLowerCase()
+          r.chapter?.toLowerCase() === chap.toLowerCase()
       ) || allRoadmaps.find(r => r.subject?.toLowerCase() === subj.toLowerCase());
     }
 
@@ -453,7 +453,7 @@ const StudyPlanPage = () => {
     let progressMap = {};
     try {
       progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
-    } catch (e) {}
+    } catch (e) { }
     let progress = progressMap[roadmapKey];
     if (!progress) {
       progress = {
@@ -488,12 +488,12 @@ const StudyPlanPage = () => {
     if (savedPlan) {
       try {
         const parsed = JSON.parse(savedPlan);
-        if (parsed && parsed.generatedFromSubject === subj && 
-            parsed.tasks && parsed.tasks.length > 0 && 
-            (parsed.tasks[0].topic === expectedTopic || parsed.tasks[0].topic === activeTopicTitle)) {
+        if (parsed && parsed.generatedFromSubject === subj &&
+          parsed.tasks && parsed.tasks.length > 0 &&
+          (parsed.tasks[0].topic === expectedTopic || parsed.tasks[0].topic === activeTopicTitle)) {
           return parsed;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const tasks = revisionScheduled ? [
@@ -627,12 +627,12 @@ const StudyPlanPage = () => {
       setLoadingText("AI is optimizing your subject-specific plan...");
       setIsRegenerating(true);
       setSuccessMessage("");
-      
+
       setTimeout(() => {
         let progressMap = {};
         try {
           progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
-        } catch (e) {}
+        } catch (e) { }
         let progress = progressMap[activeJourneyStudy.roadmapKey];
 
         let revisionScheduled = false;
@@ -860,7 +860,7 @@ const StudyPlanPage = () => {
           <div className="alert-icon">⚠️</div>
           <h2 className="alert-title">Study plan data unavailable.</h2>
           <p className="alert-desc">Please complete assessment first.</p>
-          <button 
+          <button
             className="action-button-primary"
             onClick={() => navigate('/dashboard')}
           >
@@ -893,9 +893,9 @@ const StudyPlanPage = () => {
       )}
 
       <div className="study-plan-container">
-        
+
         {/* BACK NAVIGATION */}
-        <button 
+        <button
           className="study-plan-back-btn"
           onClick={() => navigate('/dashboard')}
           type="button"
@@ -947,18 +947,18 @@ const StudyPlanPage = () => {
 
         {/* MAIN LAYOUT SPLIT */}
         <div className="study-plan-grid-layout">
-          
+
           {/* LEFT COLUMN: TIMELINE */}
           <div className="study-plan-timeline-section">
             <h2 className="section-title">Schedule Timeline</h2>
-            
+
             <div className="timeline-track-container">
               <div className="timeline-line"></div>
-              
+
               <div className="timeline-tasks-list">
                 {currentPlan?.tasks?.map((task, idx) => (
                   <div key={idx} className="timeline-card-wrapper">
-                    
+
                     {/* Node Dot on line */}
                     <div className="timeline-node">
                       <span className="node-icon">{task.icon}</span>
@@ -975,7 +975,7 @@ const StudyPlanPage = () => {
                         <p className="task-reason">{task.reason}</p>
                       </div>
                       <div className="task-footer">
-                        <button 
+                        <button
                           className="task-start-btn"
                           onClick={() => handleStartTask(task)}
                         >
@@ -993,7 +993,7 @@ const StudyPlanPage = () => {
 
           {/* RIGHT COLUMN: RATIONALE, PROGRESS & ACTIONS */}
           <div className="study-plan-right-sidebar">
-            
+
             {/* WHY AI CHOSE THIS CARD */}
             <div className="glass-card sidebar-panel-card">
               <h3 className="panel-title text-indigo-title">Why this plan?</h3>
@@ -1039,7 +1039,7 @@ const StudyPlanPage = () => {
 
             {/* REGENERATE ACTION */}
             <div className="sidebar-action-container">
-              <button 
+              <button
                 className="btn-secondary-action width-full"
                 onClick={handleRegeneratePlan}
               >
@@ -1053,7 +1053,7 @@ const StudyPlanPage = () => {
 
         {/* FINAL CTA BOTTOM */}
         <footer className="study-plan-bottom-cta">
-          <button 
+          <button
             className="action-button-primary start-learning-cta"
             onClick={handleStartLearning}
           >

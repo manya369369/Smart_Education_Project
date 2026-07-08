@@ -365,7 +365,7 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
   try {
     const savedGoal = localStorage.getItem('neurolearn_goal_data');
     if (savedGoal) goal = JSON.parse(savedGoal);
-  } catch (e) {}
+  } catch (e) { }
   try {
     const savedSetup = localStorage.getItem('neurolearn_setup_data');
     if (savedSetup) {
@@ -373,7 +373,7 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
       if (!cos) cos = setup.classOrSemester || '';
       if (!studentType) studentType = setup.studentType || '';
     }
-  } catch (e) {}
+  } catch (e) { }
   const gVal = goal?.goal || goal?.examGoal || 'General Study';
   const resolved = resolveClassAndSemester(studentType, cos);
   const roadmapKey = createRoadmapKey({
@@ -445,13 +445,13 @@ const updateSessionCompletion = (subject, chapter, topic, topicIndex, allocatedM
           if (Array.isArray(parsed)) {
             const matchedRoadmap = parsed.find(
               r => r.subject?.toLowerCase() === subject?.toLowerCase() &&
-                   r.chapter?.toLowerCase() === chapter?.toLowerCase()
+                r.chapter?.toLowerCase() === chapter?.toLowerCase()
             );
             if (matchedRoadmap && Array.isArray(matchedRoadmap.topics)) {
               const topicObj = matchedRoadmap.topics.find(
                 t => t.title?.toLowerCase() === topic?.toLowerCase() ||
-                     t.title?.toLowerCase().includes(topic?.toLowerCase()) ||
-                     topic?.toLowerCase().includes(t.title?.toLowerCase())
+                  t.title?.toLowerCase().includes(topic?.toLowerCase()) ||
+                  topic?.toLowerCase().includes(t.title?.toLowerCase())
               );
               if (topicObj) {
                 topicObj.completed = true;
@@ -727,7 +727,7 @@ const QuizPage = () => {
             const parsed = JSON.parse(savedAssessment);
             subject = parsed.subject;
           }
-        } catch (e) {}
+        } catch (e) { }
         if (!subject) {
           try {
             const savedProfile = localStorage.getItem('neurolearn_user_profile') || localStorage.getItem('neurolearn_goal_data');
@@ -735,7 +735,7 @@ const QuizPage = () => {
               const parsed = JSON.parse(savedProfile);
               subject = parsed.subjects?.[0] || parsed.subject;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
         if (!subject) {
           subject = 'General Learning';
@@ -754,7 +754,7 @@ const QuizPage = () => {
               isWeakTopic = true;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
 
         const response = await fetch(getApiUrl('/api/generate-quiz'), {
           method: 'POST',
@@ -791,7 +791,7 @@ const QuizPage = () => {
           const pool = curated ? curated : generateDynamicQuestions(topicInfo.topic);
           setQuestionPool(pool);
           setIsFallback(true);
-          
+
           if (pool.length > 0) {
             const q0 = pool.find(q => q.difficulty === 'Medium') || pool[0];
             setActiveQuestions([q0]);
@@ -924,7 +924,7 @@ const QuizPage = () => {
         const topicIndex = topicInfo.task?.currentTopicIndex || 0;
         incrementStudyTime(roadmapKey, topicIndex, 'quiz', pendingQuizSecondsRef.current);
         pendingQuizSecondsRef.current = 0;
-      } catch (err) {}
+      } catch (err) { }
     }
 
     // Validate final selection
@@ -1004,13 +1004,13 @@ const QuizPage = () => {
           const parsed = JSON.parse(savedAssessment);
           activeSub = parsed.subject;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       const task = topicInfo.task;
       const subj = task?.subject || activeSub || "General Learning";
       const chap = task?.chapter || "General Foundations";
       const allocMins = safeParseAllocatedMinutes(task?.time || task?.recommendedStudyTime);
-      
+
       const sessionsRaw = localStorage.getItem('neurolearn_learning_sessions');
       let sessions = {};
       if (sessionsRaw) {
@@ -1061,7 +1061,7 @@ const QuizPage = () => {
           if (!cos) cos = setup.classOrSemester || '';
           if (!studentType) studentType = setup.studentType || '';
         }
-      } catch (e) {}
+      } catch (e) { }
       const gVal = goal?.goal || goal?.examGoal || 'General Study';
       const resolved = resolveClassAndSemester(studentType, cos);
       const roadmapKey = createRoadmapKey({
@@ -1086,12 +1086,12 @@ const QuizPage = () => {
               break;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       let matchingRoadmap = allRoadmaps.find(
         r => r.subject?.toLowerCase() === subj.toLowerCase() &&
-             r.chapter?.toLowerCase() === chap.toLowerCase()
+          r.chapter?.toLowerCase() === chap.toLowerCase()
       );
       if (!matchingRoadmap) {
         matchingRoadmap = allRoadmaps.find(
@@ -1146,7 +1146,7 @@ const QuizPage = () => {
         pObj.revisionScheduled = false;
         pObj.revisionTopicIndex = null;
         pObj.activeAttemptId = "main";
-        
+
         // Clear current learning task for old topic
         localStorage.removeItem('neurolearn_current_learning_task');
       } else {
@@ -1170,14 +1170,14 @@ const QuizPage = () => {
       if (nextTopicObj) {
         // Generate key using the new state
         const nextSessionKey = resolveSessionKey(subj, chap, nextTopicObj.title, nextTopicIdx);
-        
+
         let sessions = {};
         try {
           sessions = JSON.parse(localStorage.getItem('neurolearn_learning_sessions')) || {};
         } catch (e) {
           sessions = {};
         }
-        
+
         sessions[nextSessionKey] = {
           roadmapKey,
           topicIndex: nextTopicIdx,
@@ -1314,7 +1314,7 @@ const QuizPage = () => {
       const timetablesRaw = localStorage.getItem('neurolearn_subject_timetables');
       let timetables = {};
       if (timetablesRaw) {
-        try { timetables = JSON.parse(timetablesRaw); } catch (e) {}
+        try { timetables = JSON.parse(timetablesRaw); } catch (e) { }
       }
       const timetableKey = `${subj}__${chap}`;
       timetables[timetableKey] = {
@@ -1348,7 +1348,7 @@ const QuizPage = () => {
               localStorage.setItem(key, JSON.stringify(parsed));
             }
           }
-        } catch(e) {}
+        } catch (e) { }
       }
 
       // If good score and next topic found, initialize a fresh session for it
@@ -1418,9 +1418,9 @@ const QuizPage = () => {
           <div className="empty-state-icon">⚠️</div>
           <h2 className="empty-state-title">No quiz topic found.</h2>
           <p className="empty-state-desc">Please set up your goals and study plan before starting a practice quiz.</p>
-          <button 
-            type="button" 
-            onClick={() => navigate('/study-plan')} 
+          <button
+            type="button"
+            onClick={() => navigate('/study-plan')}
             className="btn-primary"
           >
             Return to Study Plan
@@ -1465,7 +1465,7 @@ const QuizPage = () => {
 
         {/* Progress bar */}
         <div className="progress-bar-container">
-          <div 
+          <div
             className="progress-bar-fill"
             style={{ width: `${((currentIndex + 1) / 5) * 100}%` }}
           ></div>
@@ -1554,9 +1554,9 @@ const QuizPage = () => {
 const DebugPanel = () => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const isDev = process.env.NODE_ENV === 'development' || 
-                window.location.hostname === 'localhost' || 
-                window.location.hostname === '127.0.0.1';
+  const isDev = process.env.NODE_ENV === 'development' ||
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1';
 
   if (!isDev) return null;
 
@@ -1568,19 +1568,19 @@ const DebugPanel = () => {
 
   try {
     profile = JSON.parse(localStorage.getItem('neurolearn_user_profile') || '{}');
-  } catch (e) {}
+  } catch (e) { }
   try {
     assessment = JSON.parse(localStorage.getItem('neurolearn_assessment_results') || '{}');
-  } catch (e) {}
+  } catch (e) { }
   try {
     plan = JSON.parse(localStorage.getItem('neurolearn_study_plan') || '{}');
-  } catch (e) {}
+  } catch (e) { }
   try {
     currentTask = JSON.parse(localStorage.getItem('neurolearn_current_learning_task') || '{}');
-  } catch (e) {}
+  } catch (e) { }
   try {
     progress = JSON.parse(localStorage.getItem('neurolearn_learning_progress') || '{}');
-  } catch (e) {}
+  } catch (e) { }
 
   return (
     <div className="debug-data-flow-panel" style={{
@@ -1598,7 +1598,7 @@ const DebugPanel = () => {
       boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
       overflow: 'hidden'
     }}>
-      <div 
+      <div
         onClick={() => setIsOpen(!isOpen)}
         style={{
           background: '#0f172a',

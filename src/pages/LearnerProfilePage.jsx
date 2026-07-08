@@ -5,7 +5,7 @@ import { getSubjectProgress, createRoadmapKey, resolveClassAndSemester } from '.
 
 const normalizeSelectedSubjects = (goalData, setupData) => {
   const sources = [setupData, goalData];
-  
+
   try {
     const rawSetup = localStorage.getItem('neurolearn_setup_data');
     if (rawSetup) sources.push(JSON.parse(rawSetup));
@@ -116,7 +116,7 @@ const LearnerProfilePage = () => {
   // Try-catch wrapped loading state
   const [dataState] = useState(() => {
     console.log("[LearnerProfilePage] Initializing states and reading localStorage...");
-    
+
     let parsedResult = null;
     let parsedGoal = null;
     let parsedSetup = null;
@@ -161,9 +161,9 @@ const LearnerProfilePage = () => {
     }
 
     // 3. Complete validation checks
-    const isDataMissing = !parsedResult || 
-                          (typeof parsedResult.score === 'undefined' && typeof parsedResult.totalScore === 'undefined') || 
-                          (typeof parsedResult.percentage === 'undefined');
+    const isDataMissing = !parsedResult ||
+      (typeof parsedResult.score === 'undefined' && typeof parsedResult.totalScore === 'undefined') ||
+      (typeof parsedResult.percentage === 'undefined');
 
     return {
       result: parsedResult || {},
@@ -183,7 +183,7 @@ const LearnerProfilePage = () => {
           const userObj = JSON.parse(userRaw);
           userName = userObj.name;
         }
-      } catch (e) {}
+      } catch (e) { }
       const studentName = userName || goal.name || 'Learner';
       const primarySubject = result.primarySubject || goal.subjects?.[0] || 'General Learning';
       const selectedSubjects = goal.subjects || [primarySubject];
@@ -304,7 +304,7 @@ const LearnerProfilePage = () => {
     const sub2 = selectedSubjects[1];
     const score1 = subjectScores[sub1] || 50;
     const score2 = subjectScores[sub2] || 50;
-    
+
     if (Math.abs(score1 - score2) >= 15) {
       if (score1 < score2) {
         recommendedTimes[sub1] = Math.round(totalMinutes * 0.6);
@@ -410,7 +410,7 @@ const LearnerProfilePage = () => {
         {/* Strong / Weak Subjects & Topics */}
         <section className="profile-section">
           <h2 className="profile-section-title">Subject Competency</h2>
-          
+
           <div className="competency-container">
             {/* Strong subjects list */}
             <div className="competency-box">
@@ -476,11 +476,11 @@ const LearnerProfilePage = () => {
             {selectedSubjects.map(sub => {
               const scoreVal = subjectScores[sub] || percentage || 0;
               const recTime = recommendedTimes[sub] || 60;
-              
+
               const matchingR = allRoadmaps.find(
                 r => r.subject?.toLowerCase() === sub?.toLowerCase()
               );
-              
+
               let currentTopic = null;
               let topicIndex = 0;
               let progressVal = 0;
@@ -491,9 +491,9 @@ const LearnerProfilePage = () => {
                 try {
                   const savedGoal = localStorage.getItem('neurolearn_goal_data');
                   if (savedGoal) goal = JSON.parse(savedGoal);
-                } catch (e) {}
+                } catch (e) { }
                 const gVal = goal?.goal || goal?.examGoal || 'General Study';
-                
+
                 let st = localStorage.getItem('neurolearn_student_type') || '';
                 let cos = localStorage.getItem('neurolearn_student_class_or_semester') || '';
                 const rawSetup = localStorage.getItem('neurolearn_setup_data');
@@ -502,7 +502,7 @@ const LearnerProfilePage = () => {
                     const setup = JSON.parse(rawSetup);
                     if (!cos) cos = setup.classOrSemester || '';
                     if (!st) st = setup.studentType || '';
-                  } catch (e) {}
+                  } catch (e) { }
                 }
                 const resolved = resolveClassAndSemester(st, cos);
                 roadmapKey = createRoadmapKey({
@@ -527,7 +527,7 @@ const LearnerProfilePage = () => {
                         savedProgress = parsed[roadmapKey];
                       }
                     }
-                  } catch (e) {}
+                  } catch (e) { }
                 }
 
                 if (savedProgress) {
@@ -544,22 +544,22 @@ const LearnerProfilePage = () => {
                   currentTopic = topics[0];
                 }
               }
-              
+
               const topicTitle = currentTopic?.title || 'Introductory Concepts';
               const topicEstTime = currentTopic?.estimatedMinutes || currentTopic?.estimatedTime || 25;
               const topicObjective = currentTopic?.learningObjective || 'Establish baseline terms and relationships.';
-              
+
               const isWeak = weakTopics.some(wt => {
                 const safeText = typeof wt === "string"
                   ? wt
                   : wt?.topic || wt?.name || wt?.title || wt?.label || JSON.stringify(wt || "");
-                return safeText.toLowerCase().includes(topicTitle.toLowerCase()) || 
-                       topicTitle.toLowerCase().includes(safeText.toLowerCase());
+                return safeText.toLowerCase().includes(topicTitle.toLowerCase()) ||
+                  topicTitle.toLowerCase().includes(safeText.toLowerCase());
               });
-              
+
               const statusText = isWeak ? "Needs Extra Focus" : "Ready to Learn";
               const statusColor = isWeak ? "#fbbf24" : "#34d399";
-              
+
               const subjectJourneyData = {
                 subject: sub,
                 chapter: matchingR?.chapter || dataState.goal.chapter || 'Foundations',
@@ -577,13 +577,13 @@ const LearnerProfilePage = () => {
               };
 
               return (
-                <div 
-                  key={sub} 
-                  className="competency-box" 
-                  style={{ 
-                    padding: '1.5rem', 
-                    borderRadius: '12px', 
-                    background: 'rgba(30, 41, 59, 0.4)', 
+                <div
+                  key={sub}
+                  className="competency-box"
+                  style={{
+                    padding: '1.5rem',
+                    borderRadius: '12px',
+                    background: 'rgba(30, 41, 59, 0.4)',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
                     display: 'flex',
                     flexDirection: 'column',
@@ -592,12 +592,12 @@ const LearnerProfilePage = () => {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <h3 style={{ margin: 0, fontSize: '1.3rem', color: '#f8fafc' }}>{sub}</h3>
-                    <span 
-                      style={{ 
-                        fontSize: '0.85rem', 
-                        fontWeight: '700', 
-                        padding: '0.25rem 0.75rem', 
-                        borderRadius: '20px', 
+                    <span
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: '700',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '20px',
                         backgroundColor: isWeak ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)',
                         color: statusColor,
                         border: `1px solid ${isWeak ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
