@@ -473,16 +473,40 @@ const AssessmentPage = () => {
     const totalQuestions = allQuestions.length;
     const percentage = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
 
-    // Compute strong and weak topics
-    const strongTopics = [...new Set(allCorrect.map(q => q.topic))].filter(Boolean);
-    let weakTopics = [...new Set(allMistakes.map(m => m.topic))].filter(Boolean);
+    // Compute strong and weak topics as objects
+    const selectedSubjects = allAssessments.map(a => a.subject);
+    const primarySubject = selectedSubjects[0] || 'General Learning';
+
+    const strongTopics = [...new Set(allCorrect.map(q => q.topic))]
+      .filter(Boolean)
+      .map(topicName => {
+        const matchingItem = allCorrect.find(q => q.topic === topicName);
+        return {
+          subject: matchingItem ? matchingItem.subject : primarySubject,
+          topic: topicName,
+          chapter: matchingItem ? (matchingItem.chapter || '') : '',
+          source: 'assessment'
+        };
+      });
+
+    let weakTopics = [...new Set(allMistakes.map(m => m.topic))]
+      .filter(Boolean)
+      .map(topicName => {
+        const matchingItem = allMistakes.find(m => m.topic === topicName);
+        return {
+          subject: matchingItem ? matchingItem.subject : primarySubject,
+          topic: topicName,
+          chapter: matchingItem ? (matchingItem.chapter || '') : '',
+          source: 'assessment'
+        };
+      });
 
     if (weakTopics.length === 0) {
       // Find topic with lowest score ratio
       const topicStats = {};
       allQuestions.forEach(q => {
         if (!topicStats[q.topic]) {
-          topicStats[q.topic] = { correct: 0, total: 0 };
+          topicStats[q.topic] = { correct: 0, total: 0, subject: q.subject, chapter: q.chapter };
         }
         topicStats[q.topic].total += 1;
         const ansKey = allAssessments.findIndex(a => a.subject === q.subject);
@@ -501,11 +525,25 @@ const AssessmentPage = () => {
           lowestTopic = t;
         }
       });
-      if (lowestTopic) weakTopics = [lowestTopic];
+      if (lowestTopic) {
+        weakTopics = [{
+          subject: topicStats[lowestTopic].subject,
+          topic: lowestTopic,
+          chapter: topicStats[lowestTopic].chapter || '',
+          source: 'assessment'
+        }];
+      }
     }
 
     if (weakTopics.length === 0) {
-      weakTopics = [allAssessments[0]?.subject + " Fundamentals"];
+      const fallbackSub = allAssessments[0]?.subject || primarySubject;
+      const fallbackChap = allAssessments[0]?.chapter || '';
+      weakTopics = [{
+        subject: fallbackSub,
+        topic: fallbackSub + " Fundamentals",
+        chapter: fallbackChap,
+        source: 'assessment'
+      }];
     }
 
     // Determine user knowledge level
@@ -515,9 +553,6 @@ const AssessmentPage = () => {
     } else if (percentage >= 50) {
       currentLevel = 'Intermediate';
     }
-
-    const selectedSubjects = allAssessments.map(a => a.subject);
-    const primarySubject = selectedSubjects[0] || 'General Learning';
 
     const finalResult = {
       subject: primarySubject,

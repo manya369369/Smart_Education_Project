@@ -264,13 +264,13 @@ const StudyPlanPage = () => {
       return [activeJourneyStudy.topicTitle];
     }
     if (assessment && Array.isArray(assessment.weakTopics) && assessment.weakTopics.length > 0) {
-      return assessment.weakTopics;
+      return assessment.weakTopics.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     }
     if (profile && Array.isArray(profile.weakTopics) && profile.weakTopics.length > 0) {
-      return profile.weakTopics;
+      return profile.weakTopics.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     }
     if (profile && Array.isArray(profile.recommendedFocusAreas) && profile.recommendedFocusAreas.length > 0) {
-      return profile.recommendedFocusAreas;
+      return profile.recommendedFocusAreas.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     }
     if (assessment && assessment.primarySubject) {
       return [assessment.primarySubject];
@@ -308,11 +308,11 @@ const StudyPlanPage = () => {
     // Build the resolved list of topics to generate tasks for (guaranteeing at least 3)
     let topics = [];
     if (assessmentResult && Array.isArray(assessmentResult.weakTopics) && assessmentResult.weakTopics.length > 0) {
-      topics = assessmentResult.weakTopics;
+      topics = assessmentResult.weakTopics.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     } else if (profileData && Array.isArray(profileData.weakTopics) && profileData.weakTopics.length > 0) {
-      topics = profileData.weakTopics;
+      topics = profileData.weakTopics.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     } else if (profileData && Array.isArray(profileData.recommendedFocusAreas) && profileData.recommendedFocusAreas.length > 0) {
-      topics = profileData.recommendedFocusAreas;
+      topics = profileData.recommendedFocusAreas.map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
     } else if (assessmentResult && assessmentResult.primarySubject) {
       topics = [assessmentResult.primarySubject];
     } else if (goalData && Array.isArray(goalData.subjects) && goalData.subjects.length > 0) {

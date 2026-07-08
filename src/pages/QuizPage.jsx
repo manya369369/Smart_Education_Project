@@ -526,7 +526,8 @@ const QuizPage = () => {
         if (savedAssessment) {
           const parsed = JSON.parse(savedAssessment);
           if (parsed.weakTopics && parsed.weakTopics.length > 0) {
-            activeTopic = parsed.weakTopics[0];
+            const wt0 = parsed.weakTopics[0];
+            activeTopic = (typeof wt0 === 'object' && wt0 !== null) ? wt0.topic : wt0;
             activeReason = 'Identified weak concept from your diagnostic assessment.';
           } else if (parsed.weakSubjects && parsed.weakSubjects.length > 0) {
             activeTopic = parsed.weakSubjects[0];
@@ -748,7 +749,8 @@ const QuizPage = () => {
           if (savedAssessment) {
             const parsed = JSON.parse(savedAssessment);
             assessmentScore = parsed.score || parsed.totalScore || 0;
-            if (parsed.weakTopics && parsed.weakTopics.includes(topicInfo.topic)) {
+            const wtList = (parsed.weakTopics || []).map(wt => (typeof wt === 'object' && wt !== null) ? wt.topic : wt);
+            if (wtList.includes(topicInfo.topic)) {
               isWeakTopic = true;
             }
           }

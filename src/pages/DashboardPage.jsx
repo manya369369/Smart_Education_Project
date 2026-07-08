@@ -98,14 +98,67 @@ const DashboardPage = () => {
       hasError = true;
     }
 
+    // Determine active subject based on priority guidelines
+    let activeSubject = 'General Learning';
+    try {
+      const rawJourney = localStorage.getItem('neurolearn_active_subject_journey') ||
+                         localStorage.getItem('activeSubjectJourney') ||
+                         localStorage.getItem('neurolearn_active_journey');
+      if (rawJourney) {
+        const parsed = JSON.parse(rawJourney);
+        if (parsed?.subject) activeSubject = parsed.subject;
+      }
+    } catch (e) {}
+
+    if (activeSubject === 'General Learning') {
+      try {
+        const rawTask = localStorage.getItem('neurolearn_current_learning_task');
+        if (rawTask) {
+          const parsed = JSON.parse(rawTask);
+          if (parsed?.subject) activeSubject = parsed.subject;
+        }
+      } catch (e) {}
+    }
+
+    if (activeSubject === 'General Learning') {
+      try {
+        const rawGoal = localStorage.getItem('neurolearn_goal_data');
+        if (rawGoal) {
+          const parsed = JSON.parse(rawGoal);
+          if (parsed?.subjects && parsed.subjects.length > 0) {
+            activeSubject = parsed.subjects[0];
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Load progress for this active subject
+    let progress = null;
+    try {
+      const rawProgress = localStorage.getItem('neurolearn_subject_progress');
+      if (rawProgress) {
+        const progressMap = JSON.parse(rawProgress);
+        const matchKey = Object.keys(progressMap).find(k => {
+          const p = progressMap[k];
+          return p && String(p.subject || '').toLowerCase() === activeSubject.toLowerCase();
+        });
+        if (matchKey) {
+          progress = progressMap[matchKey];
+        }
+      }
+    } catch (e) {}
+
     const isDataMissing = !goal || !assessment;
 
     console.log("[DashboardPage] Goal data:", goal);
     console.log("[DashboardPage] Assessment data:", assessment);
+    console.log("[DashboardPage] Resolved active subject:", activeSubject);
 
     return {
       goal,
       assessment,
+      activeSubject,
+      progress,
       isInvalid: isDataMissing || hasError
     };
   });
@@ -139,7 +192,7 @@ const DashboardPage = () => {
   }, []);
 
   // Safe destructuring of data
-  const { goal, assessment, isInvalid } = dashboardData;
+  const { goal, assessment, activeSubject, progress, isInvalid } = dashboardData;
 
   // ============================================================
   // BUG 2 FIX: Read active journey and use its subject as source of truth
@@ -196,16 +249,94 @@ const DashboardPage = () => {
     return goalSubjects;
   }, [goal, activeJourney]);
 
-  const overallScore = assessment?.percentage ?? (assessment?.score !== undefined ? Math.round((assessment.score / 10) * 100) : 0);
-  const learningLevel = assessment?.currentLevel || 'Beginner';
+  // Helper to filter weak/strong topics by active subject and clean up cross-subject topics
+  const isTopicMatchingSubject = (topicObj, activeSub) => {
+    if (!topicObj) return false;
+    
+    const subjNormalized = String(activeSub || '').toLowerCase();
+    
+    // If it's an object, check subject field
+    if (typeof topicObj === 'object' && topicObj !== null) {
+      if (!topicObj.subject) return false;
+      return String(topicObj.subject).toLowerCase() === subjNormalized;
+    }
+    
+    // If it's a string, check content keywords
+    const topicStr = String(topicObj).toLowerCase();
+    
+    // English grammar keywords
+    const englishKeywords = ['noun', 'pronoun', 'verb', 'adjective', 'adverb', 'plural', 'countable', 'uncountable', 'morphology', 'grammar'];
+    const isEnglishGrammar = englishKeywords.some(keyword => topicStr.includes(keyword));
+    
+    // DBMS keywords
+    const dbmsKeywords = ['dbms', 'sql', 'database', 'relational', 'normalization', 'transaction', 'indexing', 'query'];
+    const isDbms = dbmsKeywords.some(keyword => topicStr.includes(keyword));
 
-  const strongTopics = assessment?.strongTopics || [];
-  const weakTopics = assessment?.weakTopics || [];
+    // DSA keywords
+    const dsaKeywords = ['dsa', 'graph', 'tree', 'recursion', 'binary search', 'linked list', 'sorting', 'stack', 'queue', 'array'];
+    const isDsa = dsaKeywords.some(keyword => topicStr.includes(keyword));
+
+    if (isEnglishGrammar) {
+      return subjNormalized.includes('english') || subjNormalized.includes('grammar');
+    }
+    
+    if (isDbms) {
+      return subjNormalized.includes('dbms') || subjNormalized.includes('database');
+    }
+    
+    if (isDsa) {
+      return subjNormalized.includes('dsa') || subjNormalized.includes('data structure') || subjNormalized.includes('algorithm');
+    }
+    
+    return true;
+  };
+
+  // Determine dynamic diagnostic score & learning level strictly for the active subject
+  const overallScore = useMemo(() => {
+    if (!assessment) return 0;
+    if (String(assessment.subject || '').toLowerCase() === activeSubject.toLowerCase()) {
+      return assessment.percentage ?? (assessment.score !== undefined ? Math.round((assessment.score / 10) * 100) : 0);
+    }
+    if (progress && typeof progress.assessmentScore === 'number') {
+      return progress.assessmentScore;
+    }
+    return 0;
+  }, [assessment, activeSubject, progress]);
+
+  const learningLevel = useMemo(() => {
+    if (!assessment) return 'Beginner';
+    if (String(assessment.subject || '').toLowerCase() === activeSubject.toLowerCase()) {
+      return assessment.currentLevel || 'Beginner';
+    }
+    if (overallScore >= 75) return 'Advanced';
+    if (overallScore >= 50) return 'Intermediate';
+    return 'Beginner';
+  }, [assessment, activeSubject, overallScore]);
+
+  const strongTopics = useMemo(() => {
+    const rawStrong = [
+      ...(assessment?.strongTopics || []),
+      ...(progress?.strongTopics || [])
+    ];
+    const filtered = rawStrong.filter(t => isTopicMatchingSubject(t, activeSubject));
+    const names = filtered.map(t => (typeof t === 'object' && t !== null) ? t.topic : t);
+    return [...new Set(names)].filter(Boolean);
+  }, [assessment, progress, activeSubject]);
+
+  const weakTopics = useMemo(() => {
+    const rawWeak = [
+      ...(assessment?.weakTopics || []),
+      ...(progress?.weakTopics || [])
+    ];
+    const filtered = rawWeak.filter(t => isTopicMatchingSubject(t, activeSubject));
+    const names = filtered.map(t => (typeof t === 'object' && t !== null) ? t.topic : t);
+    return [...new Set(names)].filter(Boolean);
+  }, [assessment, progress, activeSubject]);
 
   const strongTopicsCount = strongTopics.length;
   const weakTopicsCount = weakTopics.length;
 
-  const subjectScores = { [assessment?.subject || 'General Learning']: overallScore };
+  const subjectScores = { [activeSubject || 'General Learning']: overallScore };
 
   // ============================================================
   // BUG 7: Developer-safe reset helper for testing
@@ -624,9 +755,9 @@ const DashboardPage = () => {
       try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
     }
 
-    const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
+    const subject = activeSubject;
     const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
-    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
+    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || weakTopics[0];
     const topicIdx = typeof todayStudy?.topicIndex === 'number' ? todayStudy.topicIndex : (typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : 0);
     const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
 
@@ -662,9 +793,9 @@ const DashboardPage = () => {
       try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
     }
 
-    const subject = activeJourney?.subject || todayStudy?.subject || assessment?.subject || goal?.subjects?.[0];
+    const subject = activeSubject;
     const chapter = activeJourney?.chapter || todayStudy?.chapter || goal?.chapter || "General Foundations";
-    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || assessment?.weakTopics?.[0];
+    const topicVal = todayStudy?.topicTitle || activeJourney?.currentRoadmapTopic || activeJourney?.currentTopic?.title || weakTopics[0];
     const topicIdx = typeof todayStudy?.topicIndex === 'number' ? todayStudy.topicIndex : (typeof activeJourney?.currentTopicIndex === 'number' ? activeJourney.currentTopicIndex : 0);
     const recTime = activeJourney?.recommendedStudyTime || todayStudy?.estimatedMinutes || 60;
 

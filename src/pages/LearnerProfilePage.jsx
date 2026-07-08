@@ -188,8 +188,10 @@ const LearnerProfilePage = () => {
       const primarySubject = result.primarySubject || goal.subjects?.[0] || 'General Learning';
       const selectedSubjects = goal.subjects || [primarySubject];
       const currentLevel = result.currentLevel || 'Beginner';
-      const strongTopics = result.strongTopics || [];
-      const weakTopics = result.weakTopics || [primarySubject + " Fundamentals"];
+      const rawStrong = result.strongTopics || [];
+      const rawWeak = result.weakTopics || [primarySubject + " Fundamentals"];
+      const strongTopics = rawStrong.map(t => (typeof t === 'object' && t !== null) ? t.topic : t);
+      const weakTopics = rawWeak.map(t => (typeof t === 'object' && t !== null) ? t.topic : t);
       const recommendedFocusAreas = weakTopics;
       const learningSummary = `The learner ${studentName} is working towards their ${goal.examGoal || 'General Study'} goal in ${primarySubject}. Their current level is ${currentLevel}.`;
 
@@ -232,7 +234,7 @@ const LearnerProfilePage = () => {
 
         <div className="profile-card error-card">
           <div className="error-icon-big">⚠️</div>
-          <h2 className="error-title">No assessment data found.</h2>
+          <h2 className="error-title">No learner profile data available yet.</h2>
           <p className="error-text">Please complete the assessment first.</p>
           <button className="submit-button" onClick={handleReturn} type="button">
             Return to Assessment
@@ -547,10 +549,13 @@ const LearnerProfilePage = () => {
               const topicEstTime = currentTopic?.estimatedMinutes || currentTopic?.estimatedTime || 25;
               const topicObjective = currentTopic?.learningObjective || 'Establish baseline terms and relationships.';
               
-              const isWeak = weakTopics.some(wt => 
-                wt?.toLowerCase().includes(topicTitle.toLowerCase()) || 
-                topicTitle.toLowerCase().includes(wt?.toLowerCase())
-              );
+              const isWeak = weakTopics.some(wt => {
+                const safeText = typeof wt === "string"
+                  ? wt
+                  : wt?.topic || wt?.name || wt?.title || wt?.label || JSON.stringify(wt || "");
+                return safeText.toLowerCase().includes(topicTitle.toLowerCase()) || 
+                       topicTitle.toLowerCase().includes(safeText.toLowerCase());
+              });
               
               const statusText = isWeak ? "Needs Extra Focus" : "Ready to Learn";
               const statusColor = isWeak ? "#fbbf24" : "#34d399";
