@@ -13,7 +13,7 @@ const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
       setCount(value);
       return;
     }
-    
+
     let startTimestamp = null;
     const step = (timestamp) => {
       if (!startTimestamp) startTimestamp = timestamp;
@@ -25,7 +25,7 @@ const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
         setCount(end);
       }
     };
-    
+
     window.requestAnimationFrame(step);
   }, [value, duration]);
 
@@ -50,8 +50,8 @@ const SubjectProgressBar = ({ subject, score }) => {
         <span className="subject-percentage">{score}%</span>
       </div>
       <div className="progress-track">
-        <div 
-          className="progress-fill" 
+        <div
+          className="progress-fill"
           style={{ width: `${width}%` }}
         ></div>
       </div>
@@ -72,7 +72,7 @@ const DashboardPage = () => {
   // ============================================================
   const [dashboardData, setDashboardData] = useState(() => {
     console.log("[DashboardPage] Reading local storage data...");
-    
+
     let goal = null;
     let assessment = null;
     let hasError = false;
@@ -102,13 +102,13 @@ const DashboardPage = () => {
     let activeSubject = 'General Learning';
     try {
       const rawJourney = localStorage.getItem('neurolearn_active_subject_journey') ||
-                         localStorage.getItem('activeSubjectJourney') ||
-                         localStorage.getItem('neurolearn_active_journey');
+        localStorage.getItem('activeSubjectJourney') ||
+        localStorage.getItem('neurolearn_active_journey');
       if (rawJourney) {
         const parsed = JSON.parse(rawJourney);
         if (parsed?.subject) activeSubject = parsed.subject;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     if (activeSubject === 'General Learning') {
       try {
@@ -117,7 +117,7 @@ const DashboardPage = () => {
           const parsed = JSON.parse(rawTask);
           if (parsed?.subject) activeSubject = parsed.subject;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (activeSubject === 'General Learning') {
@@ -129,7 +129,7 @@ const DashboardPage = () => {
             activeSubject = parsed.subjects[0];
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // Load progress for this active subject
@@ -146,7 +146,7 @@ const DashboardPage = () => {
           progress = progressMap[matchKey];
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const isDataMissing = !goal || !assessment;
 
@@ -200,8 +200,8 @@ const DashboardPage = () => {
   const activeJourney = useMemo(() => {
     try {
       const raw = localStorage.getItem('neurolearn_active_subject_journey') ||
-                  localStorage.getItem('activeSubjectJourney') ||
-                  localStorage.getItem('neurolearn_active_journey');
+        localStorage.getItem('activeSubjectJourney') ||
+        localStorage.getItem('neurolearn_active_journey');
       if (raw) {
         const parsed = JSON.parse(raw);
         console.log("[DashboardPage] Active journey:", parsed);
@@ -229,7 +229,7 @@ const DashboardPage = () => {
       const userObj = JSON.parse(userRaw);
       userName = userObj.name;
     }
-  } catch (e) {}
+  } catch (e) { }
   const studentName = userName || goal?.name || 'Learner';
   const examGoal = goal?.goal || goal?.examGoal || 'General Study';
   const examDate = goal?.examDate || '';
@@ -252,13 +252,13 @@ const DashboardPage = () => {
   // Helper to filter weak/strong topics by active subject and clean up cross-subject topics
   const isTopicMatchingSubject = (topicObj, activeSub) => {
     if (!topicObj) return false;
-    
+
     const subjNormalized = String(activeSub || '').toLowerCase();
-    
+
     // Determine the subject and topic name
     let topicSubject = '';
     let topicName = '';
-    
+
     if (typeof topicObj === 'object' && topicObj !== null) {
       topicSubject = String(topicObj.subject || '').toLowerCase();
       topicName = String(topicObj.topic || '').toLowerCase();
@@ -268,7 +268,7 @@ const DashboardPage = () => {
       // Guess subject based on keywords
       const englishKeywords = ['noun', 'pronoun', 'verb', 'adjective', 'adverb', 'plural', 'countable', 'uncountable', 'morphology', 'grammar'];
       const isEnglishGrammar = englishKeywords.some(keyword => topicName.includes(keyword));
-      
+
       const dbmsKeywords = ['dbms', 'sql', 'database', 'relational', 'normalization', 'transaction', 'indexing', 'query', '1nf', '2nf', '3nf', 'bcnf', 'functional dependencies', 'lossless join', 'keys'];
       const isDbms = dbmsKeywords.some(keyword => topicName.includes(keyword));
 
@@ -281,16 +281,16 @@ const DashboardPage = () => {
         topicSubject = subjNormalized;
       }
     }
-    
+
     // 1. subject must match currentSubject (case-insensitive)
     if (topicSubject !== subjNormalized) {
       return false;
     }
-    
+
     // 2. Extra Validation
     const isEnglishSub = subjNormalized.includes('english') || subjNormalized.includes('grammar');
     const isDbmsSub = subjNormalized.includes('dbms') || subjNormalized.includes('database');
-    
+
     if (isEnglishSub) {
       // Never display DBMS topics
       const forbiddenInEnglish = ['1nf', '2nf', '3nf', 'bcnf', 'functional dependencies', 'lossless join', 'normalization', 'database', 'sql', 'keys'];
@@ -298,7 +298,7 @@ const DashboardPage = () => {
         return false;
       }
     }
-    
+
     if (isDbmsSub) {
       // Never display English grammar topics
       const forbiddenInDbms = ['noun', 'pronoun', 'verb', 'adjective', 'plural', 'grammar', 'countable', 'uncountable'];
@@ -306,7 +306,7 @@ const DashboardPage = () => {
         return false;
       }
     }
-    
+
     // Check DSA subject too
     if (subjNormalized.includes('dsa') || subjNormalized.includes('structure') || subjNormalized.includes('algorithm')) {
       const forbiddenInDsa = ['noun', 'pronoun', 'verb', 'adjective', 'plural', 'grammar', 'countable', 'uncountable'];
@@ -314,7 +314,7 @@ const DashboardPage = () => {
         return false;
       }
     }
-    
+
     return true;
   };
 
@@ -400,9 +400,9 @@ const DashboardPage = () => {
   const refreshTodayStudy = () => {
     try {
       // 1. Read the active subject journey
-      const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') || 
-                         localStorage.getItem('activeSubjectJourney') || 
-                         localStorage.getItem('neurolearn_active_journey');
+      const journeyRaw = localStorage.getItem('neurolearn_active_subject_journey') ||
+        localStorage.getItem('activeSubjectJourney') ||
+        localStorage.getItem('neurolearn_active_journey');
       if (!journeyRaw) { setTodayStudy(null); setActiveSession(null); return; }
       const journey = JSON.parse(journeyRaw);
       if (!journey || !journey.subject) { setTodayStudy(null); setActiveSession(null); return; }
@@ -416,7 +416,7 @@ const DashboardPage = () => {
         try {
           const roadmapsMap = JSON.parse(localStorage.getItem('neurolearn_roadmaps_by_key') || '{}');
           matchingRoadmap = roadmapsMap[journey.roadmapKey];
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (!matchingRoadmap) {
@@ -437,7 +437,7 @@ const DashboardPage = () => {
 
         matchingRoadmap = allRoadmaps.find(
           r => r.subject?.toLowerCase() === journey.subject?.toLowerCase() &&
-               r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
+            r.chapter?.toLowerCase() === journey.chapter?.toLowerCase()
         );
         if (!matchingRoadmap) {
           matchingRoadmap = allRoadmaps.find(
@@ -459,7 +459,7 @@ const DashboardPage = () => {
       try {
         const savedGoal = localStorage.getItem('neurolearn_goal_data');
         if (savedGoal) goal = JSON.parse(savedGoal);
-      } catch (e) {}
+      } catch (e) { }
       try {
         const savedSetup = localStorage.getItem('neurolearn_setup_data');
         if (savedSetup) {
@@ -467,7 +467,7 @@ const DashboardPage = () => {
           if (!cos) cos = setup.classOrSemester || '';
           if (!studentType) studentType = setup.studentType || '';
         }
-      } catch (e) {}
+      } catch (e) { }
       const gVal = goal?.goal || goal?.examGoal || 'General Study';
 
       const resolved = resolveClassAndSemester(studentType, cos);
@@ -490,7 +490,7 @@ const DashboardPage = () => {
             savedProgress = parsed[roadmapKey];
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       const completedList = getCompletedTopics(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General');
       let completedTopicIndexes = [];
@@ -503,7 +503,7 @@ const DashboardPage = () => {
       let progressMap = {};
       try {
         progressMap = JSON.parse(localStorage.getItem('neurolearn_subject_progress') || '{}');
-      } catch (e) {}
+      } catch (e) { }
       let progress = progressMap[roadmapKey];
       if (!progress) {
         progress = {
@@ -540,7 +540,7 @@ const DashboardPage = () => {
       savedProgress = progress;
       let finalCompletedCount = progress.completedTopicIndexes?.length ?? 0;
       let overallProgressPercent = progress.roadmapProgressPercent ?? 0;
-      
+
       const shouldCallGemini = !existingRoadmap;
       const activeTopic = currentTopic;
 
@@ -574,7 +574,7 @@ const DashboardPage = () => {
       } catch (e) {
         console.error("Error reading time tracking:", e);
       }
-      
+
       let remainingSeconds = Math.max(0, (sessionAllocatedMinutes * 60) - spentSeconds);
 
       const sessionKey = resolveSessionKey(journey.subject, matchingRoadmap.chapter || journey.chapter || 'General', currentTopic.title, displayIdx);
@@ -596,7 +596,7 @@ const DashboardPage = () => {
             remainingSeconds = Math.max(0, (sessionAllocatedMinutes * 60) - spentSeconds);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       console.log("[DashboardPage] Learning session:", currentSession);
       console.log("[DashboardPage] Spent seconds:", spentSeconds, "Remaining:", remainingSeconds);
@@ -779,7 +779,7 @@ const DashboardPage = () => {
     const activeSubRaw = localStorage.getItem('neurolearn_active_subject_journey') || localStorage.getItem('activeSubjectJourney') || localStorage.getItem('neurolearn_active_journey');
     let activeJourney = null;
     if (activeSubRaw) {
-      try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
+      try { activeJourney = JSON.parse(activeSubRaw); } catch (e) { }
     }
 
     const subject = activeSubject;
@@ -817,7 +817,7 @@ const DashboardPage = () => {
     const activeSubRaw = localStorage.getItem('neurolearn_active_subject_journey') || localStorage.getItem('activeSubjectJourney') || localStorage.getItem('neurolearn_active_journey');
     let activeJourney = null;
     if (activeSubRaw) {
-      try { activeJourney = JSON.parse(activeSubRaw); } catch(e) {}
+      try { activeJourney = JSON.parse(activeSubRaw); } catch (e) { }
     }
 
     const subject = activeSubject;
@@ -890,7 +890,7 @@ const DashboardPage = () => {
           <div className="alert-icon">⚠️</div>
           <h2 className="alert-title">Dashboard data unavailable.</h2>
           <p className="alert-desc">Please complete assessment first.</p>
-          <button 
+          <button
             className="action-button-primary"
             onClick={handleGoToGoalSetup}
           >
@@ -910,7 +910,7 @@ const DashboardPage = () => {
       </div>
 
       <div className="dashboard-container">
-        
+
         {/* AI POPUP */}
         {showPopup && todayStudy && (
           <div className="glass-card" style={{
@@ -932,7 +932,7 @@ const DashboardPage = () => {
                 {popupMessage}
               </p>
             </div>
-            <button 
+            <button
               onClick={handleDismissPopup}
               style={{
                 background: 'none',
@@ -953,7 +953,7 @@ const DashboardPage = () => {
             </button>
           </div>
         )}
-        
+
         {/* PAGE HEADER */}
         <header className="dashboard-header animate-slideUp">
           <div className="header-title-container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '1.5rem', flexWrap: 'wrap' }}>
@@ -961,8 +961,8 @@ const DashboardPage = () => {
               <h1 className="header-title">Welcome Back, {studentName}</h1>
               <p className="header-subtitle">Your personalized AI learning dashboard is ready.</p>
             </div>
-            <button 
-              onClick={handleLogout} 
+            <button
+              onClick={handleLogout}
               className="back-button"
               style={{ position: 'static', margin: 0 }}
             >
@@ -1021,24 +1021,24 @@ const DashboardPage = () => {
                   <span className={`badge badge-${todayStudy.difficulty.toLowerCase()}`} style={{ fontSize: '0.8rem' }}>{todayStudy.difficulty}</span>
                 </div>
 
-                 {/* Progress bar */}
-                 <div style={{ marginTop: '0.5rem' }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Current Topic Progress</span>
-                     <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>{todayStudy.topicProgressPercent || 0}%</span>
-                   </div>
-                   <div className="progress-track" style={{ marginBottom: '0.75rem' }}>
-                     <div className="progress-fill" style={{ width: `${todayStudy.topicProgressPercent || 0}%`, backgroundColor: '#34d399' }}></div>
-                   </div>
+                {/* Progress bar */}
+                <div style={{ marginTop: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Current Topic Progress</span>
+                    <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>{todayStudy.topicProgressPercent || 0}%</span>
+                  </div>
+                  <div className="progress-track" style={{ marginBottom: '0.75rem' }}>
+                    <div className="progress-fill" style={{ width: `${todayStudy.topicProgressPercent || 0}%`, backgroundColor: '#34d399' }}></div>
+                  </div>
 
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Roadmap Progress</span>
-                     <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 600 }}>{todayStudy.completedTopics}/{todayStudy.totalTopics} topics · {todayStudy.progressPercent}%</span>
-                   </div>
-                   <div className="progress-track">
-                     <div className="progress-fill" style={{ width: `${todayStudy.progressPercent}%` }}></div>
-                   </div>
-                 </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Roadmap Progress</span>
+                    <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 600 }}>{todayStudy.completedTopics}/{todayStudy.totalTopics} topics · {todayStudy.progressPercent}%</span>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${todayStudy.progressPercent}%` }}></div>
+                  </div>
+                </div>
               </div>
 
               {/* Right: Resource buttons */}
@@ -1114,10 +1114,10 @@ const DashboardPage = () => {
 
         {/* MAIN BODY GRID */}
         <div className="dashboard-grid-layout">
-          
+
           {/* LEFT PANEL: INSIGHTS & PERFORMANCE */}
           <div className="dashboard-left-panel">
-            
+
             {/* AI INSIGHTS SECTION */}
             <div className="glass-card panel-card animate-stagger" style={{ '--delay': 5 }}>
               <div className="panel-header">
@@ -1154,7 +1154,7 @@ const DashboardPage = () => {
 
           {/* RIGHT PANEL: STRENGTHS, WEAKNESSES, RECOMMENDATIONS */}
           <div className="dashboard-right-panel">
-            
+
             {/* STRENGTHS */}
             <div className="glass-card panel-card animate-stagger" style={{ '--delay': 7 }}>
               <h2 className="panel-title text-emerald-header">Your Strengths</h2>
@@ -1207,8 +1207,8 @@ const DashboardPage = () => {
         <section className="quick-actions-section animate-stagger" style={{ '--delay': 10 }}>
           <h2 className="section-title">Quick Actions</h2>
           <div className="quick-actions-grid">
-            
-            <button 
+
+            <button
               className="action-card glass-card"
               onClick={() => navigate('/study-plan')}
             >
@@ -1217,7 +1217,7 @@ const DashboardPage = () => {
               <p className="action-card-desc">Create a customized day-by-day roadmap</p>
             </button>
 
-            <button 
+            <button
               className="action-card glass-card"
               onClick={handleStartLearning}
             >
@@ -1226,7 +1226,7 @@ const DashboardPage = () => {
               <p className="action-card-desc">Access personalized learning resources</p>
             </button>
 
-            <button 
+            <button
               className="action-card glass-card"
               onClick={() => navigate('/quiz')}
             >
@@ -1235,7 +1235,7 @@ const DashboardPage = () => {
               <p className="action-card-desc">Test yourself with level-adjusting quizzes</p>
             </button>
 
-            <button 
+            <button
               className="action-card glass-card"
               onClick={() => navigate('/mistakes')}
             >
