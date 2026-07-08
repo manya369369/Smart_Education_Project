@@ -255,37 +255,64 @@ const DashboardPage = () => {
     
     const subjNormalized = String(activeSub || '').toLowerCase();
     
-    // If it's an object, check subject field
+    // Determine the subject and topic name
+    let topicSubject = '';
+    let topicName = '';
+    
     if (typeof topicObj === 'object' && topicObj !== null) {
-      if (!topicObj.subject) return false;
-      return String(topicObj.subject).toLowerCase() === subjNormalized;
-    }
-    
-    // If it's a string, check content keywords
-    const topicStr = String(topicObj).toLowerCase();
-    
-    // English grammar keywords
-    const englishKeywords = ['noun', 'pronoun', 'verb', 'adjective', 'adverb', 'plural', 'countable', 'uncountable', 'morphology', 'grammar'];
-    const isEnglishGrammar = englishKeywords.some(keyword => topicStr.includes(keyword));
-    
-    // DBMS keywords
-    const dbmsKeywords = ['dbms', 'sql', 'database', 'relational', 'normalization', 'transaction', 'indexing', 'query'];
-    const isDbms = dbmsKeywords.some(keyword => topicStr.includes(keyword));
+      topicSubject = String(topicObj.subject || '').toLowerCase();
+      topicName = String(topicObj.topic || '').toLowerCase();
+    } else {
+      // It's a string (legacy format)
+      topicName = String(topicObj).toLowerCase();
+      // Guess subject based on keywords
+      const englishKeywords = ['noun', 'pronoun', 'verb', 'adjective', 'adverb', 'plural', 'countable', 'uncountable', 'morphology', 'grammar'];
+      const isEnglishGrammar = englishKeywords.some(keyword => topicName.includes(keyword));
+      
+      const dbmsKeywords = ['dbms', 'sql', 'database', 'relational', 'normalization', 'transaction', 'indexing', 'query', '1nf', '2nf', '3nf', 'bcnf', 'functional dependencies', 'lossless join', 'keys'];
+      const isDbms = dbmsKeywords.some(keyword => topicName.includes(keyword));
 
-    // DSA keywords
-    const dsaKeywords = ['dsa', 'graph', 'tree', 'recursion', 'binary search', 'linked list', 'sorting', 'stack', 'queue', 'array'];
-    const isDsa = dsaKeywords.some(keyword => topicStr.includes(keyword));
-
-    if (isEnglishGrammar) {
-      return subjNormalized.includes('english') || subjNormalized.includes('grammar');
+      if (isEnglishGrammar) {
+        topicSubject = 'english';
+      } else if (isDbms) {
+        topicSubject = 'dbms';
+      } else {
+        // Fallback: assume matches current subject context
+        topicSubject = subjNormalized;
+      }
     }
     
-    if (isDbms) {
-      return subjNormalized.includes('dbms') || subjNormalized.includes('database');
+    // 1. subject must match currentSubject (case-insensitive)
+    if (topicSubject !== subjNormalized) {
+      return false;
     }
     
-    if (isDsa) {
-      return subjNormalized.includes('dsa') || subjNormalized.includes('data structure') || subjNormalized.includes('algorithm');
+    // 2. Extra Validation
+    const isEnglishSub = subjNormalized.includes('english') || subjNormalized.includes('grammar');
+    const isDbmsSub = subjNormalized.includes('dbms') || subjNormalized.includes('database');
+    
+    if (isEnglishSub) {
+      // Never display DBMS topics
+      const forbiddenInEnglish = ['1nf', '2nf', '3nf', 'bcnf', 'functional dependencies', 'lossless join', 'normalization', 'database', 'sql', 'keys'];
+      if (forbiddenInEnglish.some(word => topicName.includes(word))) {
+        return false;
+      }
+    }
+    
+    if (isDbmsSub) {
+      // Never display English grammar topics
+      const forbiddenInDbms = ['noun', 'pronoun', 'verb', 'adjective', 'plural', 'grammar', 'countable', 'uncountable'];
+      if (forbiddenInDbms.some(word => topicName.includes(word))) {
+        return false;
+      }
+    }
+    
+    // Check DSA subject too
+    if (subjNormalized.includes('dsa') || subjNormalized.includes('structure') || subjNormalized.includes('algorithm')) {
+      const forbiddenInDsa = ['noun', 'pronoun', 'verb', 'adjective', 'plural', 'grammar', 'countable', 'uncountable'];
+      if (forbiddenInDsa.some(word => topicName.includes(word))) {
+        return false;
+      }
     }
     
     return true;
