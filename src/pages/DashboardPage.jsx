@@ -1171,14 +1171,17 @@ const DashboardPage = () => {
 
             {/* WEAKNESSES */}
             <div className="glass-card panel-card animate-stagger" style={{ '--delay': 8 }}>
-              <h2 className="panel-title text-rose-header">Needs Improvement</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 className="panel-title text-rose-header" style={{ margin: 0 }}>Needs Improvement - {activeSubject}</h2>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', opacity: 0.8 }}>Dashboard updated</span>
+              </div>
               <div className="topics-chips-container">
                 {weakTopics.length > 0 ? (
                   weakTopics.map(topic => (
                     <span key={topic} className="glowing-chip-warning">{topic}</span>
                   ))
                 ) : (
-                  <p className="empty-panel-text">Zero weak topics! Excellent performance.</p>
+                  <p className="empty-panel-text">No major weak areas detected yet.</p>
                 )}
               </div>
             </div>
