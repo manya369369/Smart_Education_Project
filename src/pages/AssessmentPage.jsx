@@ -5,7 +5,7 @@ import '../styles/AssessmentPage.css';
 
 const normalizeSelectedSubjects = (goalData, setupData) => {
   const sources = [setupData, goalData];
-  
+
   try {
     const rawSetup = localStorage.getItem('neurolearn_setup_data');
     if (rawSetup) sources.push(JSON.parse(rawSetup));
@@ -240,7 +240,7 @@ const AssessmentPage = () => {
     const allRoadmaps = getRoadmapData();
     const matchingRoadmap = allRoadmaps.find(
       r => r.subject?.toLowerCase() === setupSubject.subject?.toLowerCase() &&
-           r.chapter?.toLowerCase() === setupSubject.chapter?.toLowerCase()
+        r.chapter?.toLowerCase() === setupSubject.chapter?.toLowerCase()
     );
 
     const subjectAssessments = [{
@@ -619,16 +619,16 @@ const AssessmentPage = () => {
   if (isLoading) {
     const totalSubjectsCount = totalSubjects;
     const currentSubjectName = setupSubjects[loadingSubjectIndex]?.subject || 'Subject';
-    
+
     const isTransitioning = loadingSubjectIndex > 0;
     const previousSubjectName = isTransitioning ? (setupSubjects[loadingSubjectIndex - 1]?.subject || 'Subject 1') : '';
-    
-    const loadingTitleText = isTransitioning 
-      ? `${previousSubjectName} assessment completed.` 
+
+    const loadingTitleText = isTransitioning
+      ? `${previousSubjectName} assessment completed.`
       : 'AI is creating your personalized assessment...';
-      
-    const loadingSubtitleText = isTransitioning 
-      ? `Starting ${currentSubjectName} assessment...` 
+
+    const loadingSubtitleText = isTransitioning
+      ? `Starting ${currentSubjectName} assessment...`
       : 'Questions are being generated...';
 
     return (
@@ -639,11 +639,11 @@ const AssessmentPage = () => {
             <div className="spinner-inner"></div>
             <div className="spinner-glow"></div>
           </div>
-          
+
           <h2 className="loading-title" style={{ margin: '0.5rem 0 1rem 0', fontSize: '1.6rem', lineHeight: '1.4', background: 'linear-gradient(135deg, #ffffff 70%, rgba(255, 255, 255, 0.6) 100%)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent', textAlign: 'center' }}>
             {loadingTitleText}
           </h2>
-          
+
           <h3 className="loading-subtitle" style={{ margin: '0.5rem 0 1rem 0', fontSize: '1.25rem', color: '#818cf8', fontWeight: '600', letterSpacing: '0.5px', textAlign: 'center' }}>
             {loadingSubtitleText}
           </h3>
@@ -653,7 +653,7 @@ const AssessmentPage = () => {
               Loading {currentSubjectName} Assessment... (Subject {loadingSubjectIndex + 1} of {totalSubjectsCount})
             </div>
           )}
-          
+
           <p className="loading-phrase" key={loadingText} style={{ margin: '1rem 0 0 0', fontSize: '1.05rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>
             {loadingText}
           </p>
