@@ -1,188 +1,258 @@
-# NeuroLearn AI
+# 🧠 NeuroLearn – AI Powered Adaptive Learning Platform
 
-## Overview
-
-NeuroLearn AI is an adaptive AI-powered learning platform that creates personalized assessments, study plans, learning resources, and tutoring experiences based on a student's strengths and weaknesses.
-
-The platform helps learners identify weak areas, generate customized learning paths, interact with an AI tutor, access AI-generated notes, and follow personalized study schedules.
+> Personalized AI-powered study companion that creates adaptive roadmaps, intelligent assessments, personalized study plans, AI-generated notes, video lessons, and quizzes to improve learning efficiency.
 
 ---
 
-## Problem Statement
+## 📖 Overview
 
-Students often receive generic learning resources that do not adapt to their individual strengths, weaknesses, and learning pace.
+NeuroLearn is an AI-driven adaptive learning platform designed to personalize every student's learning journey.
 
-NeuroLearn AI solves this by:
+Unlike traditional learning systems, NeuroLearn continuously analyzes a student's performance and dynamically updates study plans, revision schedules, quizzes, and learning resources.
 
-* Generating subject-specific assessments
-* Identifying weak concepts automatically
-* Creating personalized study plans
-* Providing AI-generated notes
-* Delivering AI tutor support
-* Generating adaptive quizzes
-* Tracking learning progress
+The system uses Google's Gemini AI to generate personalized educational content according to the student's selected subjects and learning progress.
 
 ---
 
-## Key Features
+# ✨ Features
 
-### AI Assessment Engine
-
-* Subject-specific assessments
-* Dynamic question generation
-* Performance analysis
-
-### Personalized Study Plan
-
-* Weak-topic identification
-* Adaptive learning roadmap
-* Daily learning schedule
-
-### AI Tutor
-
-* Conversational learning assistant
-* Context-aware explanations
-* Follow-up learning support
-
-### AI Notes Generator
-
-* Topic-based study notes
-* Summaries and key concepts
-* Quick revision material
-
-### Personalized Learning Videos
-
-* AI-generated lesson scripts
-* Topic-focused learning experience
-
-### Adaptive Quiz System
-
-* Topic-specific quizzes
-* Performance-based recommendations
-
-### Progress Tracking
-
-* Learning analytics
-* Topic mastery monitoring
-* Study consistency tracking
+### 🔹 AI Assessment Generator
+- AI-generated assessment based on selected subjects
+- Dynamic difficulty adjustment
+- Multiple choice questions
+- Performance evaluation
 
 ---
 
-## Tech Stack
-
-### Frontend
-
-* React
-* Vite
-* JavaScript
-* CSS
-
-### Backend
-
-* Node.js
-* Express.js
-
-### AI
-
-* Google Gemini API
-
-### Storage
-
-* LocalStorage
+### 🔹 Personalized Roadmap
+- AI-generated roadmap
+- Topic-wise progression
+- Progress tracking
+- Roadmap persistence across sessions
 
 ---
 
-## Project Flow
+### 🔹 Adaptive Study Plan
+Automatically updates after every quiz.
 
-Goal Setup
+Depending on performance:
 
-↓
-
-Assessment Generation
-
-↓
-
-Performance Analysis
-
-↓
-
-Learner Profile
-
-↓
-
-Personalized Study Plan
-
-↓
-
-Learning Page
-
-↓
-
-AI Tutor / Notes / Video Lessons
-
-↓
-
-Adaptive Quiz
-
-↓
-
-Mistake Analysis
-
-↓
-
-Tomorrow's Learning Plan
+- High Score → Unlock next topic
+- Medium Score → Extra practice
+- Low Score → Revision session
 
 ---
 
-## Installation
+### 🔹 AI Video Lessons
+- Personalized video explanations
+- Topic-focused lessons
+- Progress tracking
+- Resume learning
 
-Clone repository:
+---
 
-```bash
-git clone <repository-url>
+### 🔹 AI Study Notes
+- AI-generated concise notes
+- Easy-to-understand explanations
+- Concept summaries
+- Quick revision material
+
+---
+
+### 🔹 Adaptive Quiz
+- Personalized questions
+- Difficulty based on performance
+- Instant score evaluation
+- Weak topic detection
+
+---
+
+### 🔹 Dashboard
+Shows
+
+- Learning progress
+- Topic completion
+- Study time
+- Remaining time
+- Roadmap progress
+- Strong topics
+- Weak topics
+- Overall performance
+
+---
+
+### 🔹 Learning Analytics
+
+Tracks
+
+- Time spent
+- Completion percentage
+- Quiz scores
+- Revision history
+- Study streak
+- Progress visualization
+
+---
+
+### 🔹 Login System
+
+- Secure Authentication
+- Email Validation
+- Password Validation
+- Protected Dashboard
+
+---
+
+# 🚀 Tech Stack
+
+## Frontend
+
+- React.js
+- Vite
+- React Router
+- CSS
+
+## Backend
+
+- Node.js
+- Express.js
+
+## AI
+
+- Google Gemini API
+
+## Deployment
+
+- Netlify (Frontend)
+- Render (Backend)
+
+---
+
+# 📂 Project Structure
+
+```
+Smart_Education_Project/
+│
+├── backend/
+│   ├── server.js
+│   ├── routes/
+│   ├── controllers/
+│   └── package.json
+│
+├── src/
+│   ├── components/
+│   ├── pages/
+│   ├── styles/
+│   └── App.jsx
+│
+├── public/
+├── package.json
+└── README.md
 ```
 
-Install dependencies:
+---
+
+# ⚙️ Installation
+
+Clone repository
+
+```bash
+git clone https://github.com/yourusername/Smart_Education_Project.git
+```
+
+Move inside project
+
+```bash
+cd Smart_Education_Project
+```
+
+Install dependencies
 
 ```bash
 npm install
 ```
 
-Start development server:
+Backend
+
+```bash
+cd backend
+npm install
+```
+
+Run frontend
 
 ```bash
 npm run dev
 ```
 
----
+Run backend
 
-## Environment Variables
-
-Create a `.env` file:
-
-```env
-GEMINI_API_KEY=YOUR_API_KEY
+```bash
+cd backend
+npm start
 ```
 
-Never upload `.env` to GitHub.
+---
+
+# 🌐 Live Demo
+
+### Frontend
+
+```
+https://your-netlify-link.netlify.app
+```
+
+### Backend
+
+```
+https://your-render-link.onrender.com
+```
+
 
 ---
 
-## Future Scope
+# 🎯 Future Enhancements
 
-* Voice-based AI tutor
-* Multi-language support
-* Real video generation
-* Learning analytics dashboard
-* Mobile application
-* Collaborative learning spaces
+- Mobile Application
+- Parent Dashboard
+- Teacher Analytics
+- Gamification
+- AI Interview Preparation
+- Offline Learning Mode
+- Multi-language Support
 
 ---
 
-## Team
+# 👨‍💻 Team
 
-Developed as part of a hackathon project.
+Hackathon Project
 
-## License
+Team Members
 
-Educational and demonstration purposes.
+- Manya Aggarwal
+- Pushkar Rajput
+- Krishna Mishra
+- Neelu Maurya
+- Arun Kumar
+
+---
+
+# 📄 License
+
+This project is developed for educational and hackathon purposes.
+
+---
+
+# 🙏 Acknowledgements
+
+- Google Gemini AI
+- React.js
+- Node.js
+- Express.js
+- Vite
+- Netlify
+- Render
+
+---
+
+## ⭐ If you like this project, don't forget to star the repository!
