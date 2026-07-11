@@ -54,7 +54,7 @@ const WelcomePage = () => {
   }, []);
 
   const handleStart = () => {
-    navigate('/login');
+    navigate('/goal-setup');
   };
 
   return (

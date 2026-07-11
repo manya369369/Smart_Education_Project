@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import '../styles/GoalSetupPage.css';
 import '../styles/AuthPages.css';
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const { login, loginGoogle, authError } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showForgotModal, setShowForgotModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleInputChange = (e) => {
@@ -20,12 +21,21 @@ const LoginPage = () => {
     if (errorMessage) setErrorMessage('');
   };
 
-  const handleSubmit = (e) => {
+  /**
+   * Determine post-login destination based on onboarding status.
+   * Uses existing neurolearn_goal_data to check if onboarding is complete.
+   */
+  const getPostLoginRoute = () => {
+    return '/welcome';
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
     const { email, password } = formData;
 
+    // ---- Client-side validation ----
     if (!email.trim()) {
       setErrorMessage('Email is required.');
       return;
@@ -37,45 +47,48 @@ const LoginPage = () => {
       return;
     }
 
-    if (!password.trim()) {
+    if (email.trim().includes(' ')) {
+      setErrorMessage('Email address cannot contain spaces.');
+      return;
+    }
+
+    if (!password) {
       setErrorMessage('Password is required.');
       return;
     }
 
+    // ---- Firebase login ----
     setIsLoading(true);
 
     try {
-      const accountsRaw = localStorage.getItem('neurolearn_accounts');
-      const accounts = accountsRaw ? JSON.parse(accountsRaw) : {};
-      const targetEmail = email.trim().toLowerCase();
+      const result = await login(email, password);
 
-      const account = accounts[targetEmail];
-
-      if (!account) {
-        setErrorMessage('No account found with this email. Please sign up first.');
-        setIsLoading(false);
-        return;
+      if (result.emailVerified) {
+        // Email is verified — enter the app
+        const destination = getPostLoginRoute();
+        navigate(destination);
+      } else {
+        // Email not verified — send to verification page
+        navigate('/verify-email');
       }
-
-      if (account.password !== password) {
-        setErrorMessage('Incorrect password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Success — save session
-      localStorage.setItem('neurolearn_user', JSON.stringify({
-        name: account.name,
-        email: account.email,
-        loggedIn: true,
-        loginTime: Date.now()
-      }));
-
-      console.log("[LoginPage] Logged in successfully via local auth");
-      navigate('/goal-setup');
     } catch (err) {
-      console.error("[LoginPage] Local login error:", err);
-      setErrorMessage('An error occurred during login.');
+      setErrorMessage(err.message || 'An error occurred during login.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setErrorMessage('');
+    setIsLoading(true);
+
+    try {
+      const user = await loginGoogle();
+      if (user) {
+        navigate('/welcome');
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'An error occurred during Google sign-in.');
     } finally {
       setIsLoading(false);
     }
@@ -84,6 +97,7 @@ const LoginPage = () => {
   const handleBack = () => {
     navigate('/');
   };
+
 
   return (
     <div className="goal-setup-wrapper animate-fadeIn">
@@ -103,10 +117,14 @@ const LoginPage = () => {
 
         <form onSubmit={handleSubmit} className="goal-form">
           {/* Error Message */}
-          {errorMessage && (
+          {(authError || errorMessage) && (
             <div className="error-banner">
               <span className="error-icon">!</span>
-              <span>{errorMessage}</span>
+              <span>
+                {authError
+                  ? "Firebase Authentication is not configured. Please complete the Firebase setup."
+                  : errorMessage}
+              </span>
             </div>
           )}
 
@@ -123,7 +141,7 @@ const LoginPage = () => {
               onChange={handleInputChange}
               placeholder="name@domain.com"
               className="form-input"
-              disabled={isLoading}
+              disabled={isLoading || !!authError}
               autoComplete="email"
             />
           </div>
@@ -142,7 +160,7 @@ const LoginPage = () => {
                 onChange={handleInputChange}
                 placeholder="••••••••"
                 className="form-input"
-                disabled={isLoading}
+                disabled={isLoading || !!authError}
                 autoComplete="current-password"
               />
               <button
@@ -159,27 +177,63 @@ const LoginPage = () => {
 
           {/* Forgot Password link */}
           <div style={{ textAlign: 'right', fontSize: '0.85rem' }}>
-            <button
-              type="button"
-              onClick={() => setShowForgotModal(true)}
+            <Link
+              to="/forgot-password"
               style={{
-                background: 'none',
-                border: 'none',
                 color: '#818cf8',
-                cursor: 'pointer',
                 fontWeight: 500,
-                padding: 0,
-                fontSize: '0.85rem'
+                fontSize: '0.85rem',
+                textDecoration: 'none'
               }}
             >
               Forgot Password?
-            </button>
+            </Link>
           </div>
 
           {/* Continue button */}
           <div className="button-container">
-            <button type="submit" className="submit-button" disabled={isLoading}>
-              {isLoading ? 'SIGNING IN...' : 'CONTINUE'}
+            <button type="submit" className="submit-button" disabled={isLoading || !!authError}>
+              {isLoading ? (
+                <span className="btn-loading-content">
+                  <span className="btn-spinner"></span>
+                  SIGNING IN...
+                </span>
+              ) : (
+                'CONTINUE'
+              )}
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="auth-divider">OR</div>
+
+          {/* Continue with Google button */}
+          <div className="button-container">
+            <button
+              type="button"
+              className="google-signin-btn"
+              onClick={handleGoogleLogin}
+              disabled={isLoading || !!authError}
+            >
+              <svg className="google-icon" viewBox="0 0 24 24" width="18" height="18">
+                <path
+                  fill="#EA4335"
+                  d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.89 3.02C6.24 7.66 8.88 5.04 12 5.04z"
+                />
+                <path
+                  fill="#4285F4"
+                  d="M23.49 12.27c0-.81-.07-1.59-.2-2.36H12v4.51h6.46c-.29 1.48-1.14 2.73-2.4 3.58l3.73 2.89c2.18-2.01 3.7-4.99 3.7-8.62z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.78c-.26-.77-.4-1.6-.4-2.46s.14-1.69.4-2.46L1.39 6.84C.5 8.64 0 10.66 0 12.8s.5 4.16 1.39 5.96l3.89-2.98z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.73-2.89c-1.04.7-2.37 1.12-4.23 1.12-3.12 0-5.76-2.62-6.72-5.54l-3.89 3c1.98 3.89 5.96 6.56 12 6.56z"
+                />
+              </svg>
+              <span>Continue with Google</span>
             </button>
           </div>
 
@@ -192,41 +246,6 @@ const LoginPage = () => {
           </div>
         </form>
       </div>
-
-      {/* Forgot Password Modal */}
-      {showForgotModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(2, 6, 23, 0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 100,
-          padding: '1.5rem'
-        }}>
-          <div className="goal-card animate-fadeIn" style={{ maxWidth: '450px', padding: '2rem' }}>
-            <header className="goal-card-header" style={{ marginBottom: '1.5rem' }}>
-              <h2 className="goal-card-title" style={{ fontSize: '1.5rem' }}>Forgot Password</h2>
-            </header>
-            <p style={{ color: '#94a3b8', lineHeight: '1.6', marginBottom: '2rem', textAlign: 'center' }}>
-              Password reset is not available in local mode. Please sign up again or contact admin.
-            </p>
-            <div className="button-container">
-              <button 
-                type="button" 
-                className="submit-button" 
-                onClick={() => setShowForgotModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

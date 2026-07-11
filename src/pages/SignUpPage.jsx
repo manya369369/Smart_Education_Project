@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import '../styles/GoalSetupPage.css';
 import '../styles/AuthPages.css';
 
 const SignUpPage = () => {
   const navigate = useNavigate();
+  const { signup, authError } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -16,6 +18,7 @@ const SignUpPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -41,19 +44,35 @@ const SignUpPage = () => {
     special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password)
   };
 
-  const handleSubmit = (e) => {
+  // Password strength calculation
+  const getPasswordStrength = () => {
+    const met = Object.values(pwChecks).filter(Boolean).length;
+    if (met <= 2) return { label: 'Weak', className: 'strength-weak', percent: 33 };
+    if (met <= 4) return { label: 'Medium', className: 'strength-medium', percent: 66 };
+    return { label: 'Strong', className: 'strength-strong', percent: 100 };
+  };
+
+  const passwordStrength = getPasswordStrength();
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
 
     const { name, email, password, confirmPassword } = formData;
 
+    // ---- Client-side validation ----
     if (!name.trim()) {
       setErrorMessage('Full name is required.');
       return;
     }
     if (name.trim().length < 3) {
       setErrorMessage('Full name must be at least 3 characters.');
+      return;
+    }
+    // Name cannot be only numbers
+    if (/^\d+$/.test(name.trim())) {
+      setErrorMessage('Full name cannot consist only of numbers.');
       return;
     }
 
@@ -64,6 +83,10 @@ const SignUpPage = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+    if (email.trim().includes(' ')) {
+      setErrorMessage('Email address cannot contain spaces.');
       return;
     }
 
@@ -78,45 +101,23 @@ const SignUpPage = () => {
       return;
     }
 
+    if (!agreedToTerms) {
+      setErrorMessage('Please agree to the Terms of Service and Privacy Policy to continue.');
+      return;
+    }
+
+    // ---- Firebase signup ----
     setIsLoading(true);
 
     try {
-      const accountsRaw = localStorage.getItem('neurolearn_accounts');
-      const accounts = accountsRaw ? JSON.parse(accountsRaw) : {};
-      const targetEmail = email.trim().toLowerCase();
+      await signup(name.trim(), email, password);
 
-      if (accounts[targetEmail]) {
-        setErrorMessage('An account already exists with this email. Please login.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Save new account
-      accounts[targetEmail] = {
-        name: name.trim(),
-        email: email.trim(),
-        password: password,
-        createdAt: new Date().toISOString()
-      };
-
-      localStorage.setItem('neurolearn_accounts', JSON.stringify(accounts));
-
-      // Auto login
-      localStorage.setItem('neurolearn_user', JSON.stringify({
-        name: name.trim(),
-        email: email.trim(),
-        loggedIn: true,
-        loginTime: Date.now()
-      }));
-
-      console.log("[SignUpPage] Account created and logged in via local auth");
-      setSuccessMessage('Account created successfully!');
+      setSuccessMessage('Account created! Please check your email for verification.');
       setTimeout(() => {
-        navigate('/goal-setup');
-      }, 800);
+        navigate('/verify-email');
+      }, 1200);
     } catch (err) {
-      console.error("[SignUpPage] Local signup error:", err);
-      setErrorMessage('An error occurred during sign up.');
+      setErrorMessage(err.message || 'An error occurred during sign up.');
     } finally {
       setIsLoading(false);
     }
@@ -137,10 +138,14 @@ const SignUpPage = () => {
         </header>
 
         <form onSubmit={handleSubmit} className="goal-form">
-          {errorMessage && (
+          {(authError || errorMessage) && (
             <div className="error-banner">
               <span className="error-icon">!</span>
-              <span>{errorMessage}</span>
+              <span>
+                {authError
+                  ? "Firebase Authentication is not configured. Please complete the Firebase setup."
+                  : errorMessage}
+              </span>
             </div>
           )}
 
@@ -164,7 +169,7 @@ const SignUpPage = () => {
               onChange={handleInputChange}
               placeholder="Min 3 characters"
               className="form-input"
-              disabled={isLoading}
+              disabled={isLoading || !!authError}
               autoComplete="name"
             />
           </div>
@@ -182,7 +187,7 @@ const SignUpPage = () => {
               onChange={handleInputChange}
               placeholder="name@domain.com"
               className="form-input"
-              disabled={isLoading}
+              disabled={isLoading || !!authError}
               autoComplete="email"
             />
           </div>
@@ -201,7 +206,7 @@ const SignUpPage = () => {
                 onChange={handleInputChange}
                 placeholder="Min 8 chars, upper, lower, number, symbol"
                 className="form-input"
-                disabled={isLoading}
+                disabled={isLoading || !!authError}
                 autoComplete="new-password"
               />
               <button
@@ -214,25 +219,36 @@ const SignUpPage = () => {
                 {showPassword ? '🙈' : '👁️'}
               </button>
             </div>
-            {/* Live password strength indicator */}
+
+            {/* Live password requirements checklist */}
             {formData.password.length > 0 && (
-              <div className="password-requirements">
-                <span className={pwChecks.length ? 'req-met' : 'req-unmet'}>
-                  {pwChecks.length ? '✓' : '○'} 8+ characters
-                </span>{' · '}
-                <span className={pwChecks.upper ? 'req-met' : 'req-unmet'}>
-                  {pwChecks.upper ? '✓' : '○'} Uppercase
-                </span>{' · '}
-                <span className={pwChecks.lower ? 'req-met' : 'req-unmet'}>
-                  {pwChecks.lower ? '✓' : '○'} Lowercase
-                </span>{' · '}
-                <span className={pwChecks.digit ? 'req-met' : 'req-unmet'}>
-                  {pwChecks.digit ? '✓' : '○'} Number
-                </span>{' · '}
-                <span className={pwChecks.special ? 'req-met' : 'req-unmet'}>
-                  {pwChecks.special ? '✓' : '○'} Symbol
-                </span>
-              </div>
+              <>
+                <div className="password-requirements">
+                  <span className={pwChecks.length ? 'req-met' : 'req-unmet'}>
+                    {pwChecks.length ? '✓' : '○'} 8+ characters
+                  </span>{' · '}
+                  <span className={pwChecks.upper ? 'req-met' : 'req-unmet'}>
+                    {pwChecks.upper ? '✓' : '○'} Uppercase
+                  </span>{' · '}
+                  <span className={pwChecks.lower ? 'req-met' : 'req-unmet'}>
+                    {pwChecks.lower ? '✓' : '○'} Lowercase
+                  </span>{' · '}
+                  <span className={pwChecks.digit ? 'req-met' : 'req-unmet'}>
+                    {pwChecks.digit ? '✓' : '○'} Number
+                  </span>{' · '}
+                  <span className={pwChecks.special ? 'req-met' : 'req-unmet'}>
+                    {pwChecks.special ? '✓' : '○'} Symbol
+                  </span>
+                </div>
+
+                {/* Password strength bar */}
+                <div className="password-strength-bar-container">
+                  <div className={`password-strength-bar ${passwordStrength.className}`} style={{ width: `${passwordStrength.percent}%` }}></div>
+                </div>
+                <div className={`password-strength-label ${passwordStrength.className}`}>
+                  {passwordStrength.label}
+                </div>
+              </>
             )}
           </div>
 
@@ -250,7 +266,7 @@ const SignUpPage = () => {
                 onChange={handleInputChange}
                 placeholder="Re-enter your password"
                 className="form-input"
-                disabled={isLoading}
+                disabled={isLoading || !!authError}
                 autoComplete="new-password"
               />
               <button
@@ -265,10 +281,38 @@ const SignUpPage = () => {
             </div>
           </div>
 
+          {/* Terms of Service checkbox */}
+          <div className="terms-checkbox-container">
+            <label className="terms-checkbox-label" htmlFor="terms-checkbox">
+              <input
+                type="checkbox"
+                id="terms-checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => {
+                  setAgreedToTerms(e.target.checked);
+                  if (errorMessage) setErrorMessage('');
+                }}
+                disabled={isLoading || !!authError}
+                className="terms-checkbox-input"
+              />
+              <span className="terms-checkbox-custom"></span>
+              <span className="terms-checkbox-text">
+                I agree to the <strong>Terms of Service</strong> and <strong>Privacy Policy</strong>
+              </span>
+            </label>
+          </div>
+
           {/* Submit */}
           <div className="button-container">
-            <button type="submit" className="submit-button" disabled={isLoading}>
-              {isLoading ? 'CREATING ACCOUNT...' : 'SIGN UP'}
+            <button type="submit" className="submit-button" disabled={isLoading || !!authError}>
+              {isLoading ? (
+                <span className="btn-loading-content">
+                  <span className="btn-spinner"></span>
+                  CREATING ACCOUNT...
+                </span>
+              ) : (
+                'SIGN UP'
+              )}
             </button>
           </div>
 

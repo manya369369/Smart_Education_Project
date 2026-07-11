@@ -1,6 +1,8 @@
-/* Auth Pages — additional styles for Login & Signup */
+/* Auth Pages — additional styles for Login, Signup, Verify Email, Forgot Password */
 
-/* Password field wrapper */
+/* ============================================================
+   Password field wrapper
+   ============================================================ */
 .password-field-wrapper {
   position: relative;
   width: 100%;
@@ -37,7 +39,9 @@
   color: #818cf8;
 }
 
-/* Password strength indicator */
+/* ============================================================
+   Password requirements checklist
+   ============================================================ */
 .password-requirements {
   margin-top: 0.5rem;
   font-size: 0.75rem;
@@ -52,3 +56,259 @@
 .password-requirements .req-unmet {
   color: #64748b;
 }
+
+/* ============================================================
+   Password strength bar
+   ============================================================ */
+.password-strength-bar-container {
+  margin-top: 0.5rem;
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.password-strength-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.password-strength-bar.strength-weak {
+  background: #f87171;
+}
+
+.password-strength-bar.strength-medium {
+  background: #fbbf24;
+}
+
+.password-strength-bar.strength-strong {
+  background: #34d399;
+}
+
+.password-strength-label {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.password-strength-label.strength-weak {
+  color: #f87171;
+}
+
+.password-strength-label.strength-medium {
+  color: #fbbf24;
+}
+
+.password-strength-label.strength-strong {
+  color: #34d399;
+}
+
+/* ============================================================
+   Terms of Service checkbox
+   ============================================================ */
+.terms-checkbox-container {
+  margin: 0.75rem 0 0.25rem;
+}
+
+.terms-checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  user-select: none;
+}
+
+.terms-checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.terms-checkbox-custom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+  margin-top: 2px;
+}
+
+.terms-checkbox-input:checked + .terms-checkbox-custom {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+.terms-checkbox-input:checked + .terms-checkbox-custom::after {
+  content: '✓';
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.terms-checkbox-input:focus-visible + .terms-checkbox-custom {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+
+.terms-checkbox-text strong {
+  color: #818cf8;
+  font-weight: 600;
+}
+
+/* ============================================================
+   Button loading spinner
+   ============================================================ */
+.btn-loading-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: btnSpin 0.6s linear infinite;
+}
+
+@keyframes btnSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================
+   Auth loading screen (for ProtectedRoute)
+   ============================================================ */
+.auth-loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: linear-gradient(135deg, #020617 0%, #0f172a 50%, #020617 100%);
+  gap: 1.5rem;
+}
+
+.auth-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(99, 102, 241, 0.15);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: authSpin 0.8s ease-in-out infinite;
+}
+
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.auth-loading-text {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.auth-loading-brand {
+  color: #818cf8;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* ============================================================
+   Divider (OR) and Google Sign-In Button
+   ============================================================ */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 1.25rem 0;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.auth-divider:not(:empty)::before {
+  margin-right: .75em;
+}
+
+.auth-divider:not(:empty)::after {
+  margin-left: .75em;
+}
+
+.google-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 340px;
+  height: 54px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 27px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #f8fafc;
+  font-family: var(--font-main), system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  outline: none;
+  margin: 0 auto;
+}
+
+.google-signin-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.google-signin-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.google-signin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.google-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+

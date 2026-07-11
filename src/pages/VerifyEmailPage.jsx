@@ -1,89 +1,123 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { sendEmailVerification, signOut } from 'firebase/auth';
-import { auth } from '../firebase';
-import '../styles/GoalSetupPage.css'; // Reuse setup styling to match theme exactly
+import { useAuth } from '../context/AuthContext';
+import '../styles/GoalSetupPage.css';
+import '../styles/AuthPages.css';
 
 const VerifyEmailPage = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const { user, isAuthenticated, isEmailVerified, loading, resendVerification, logout, refreshUser } = useAuth();
+
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const cooldownRef = useRef(null);
 
+  // ---- Redirect logic ----
   useEffect(() => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      navigate('/login');
-    } else {
-      setUser(currentUser);
-      if (currentUser.emailVerified) {
-        navigate('/goal-setup');
-      }
-    }
-  }, [navigate]);
+    if (loading) return;
 
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    if (isEmailVerified) {
+      // Already verified — go to Welcome Page
+      navigate('/welcome');
+    }
+  }, [loading, isAuthenticated, isEmailVerified, navigate]);
+
+  // ---- Cleanup cooldown timer ----
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) {
+        clearInterval(cooldownRef.current);
+      }
+    };
+  }, []);
+
+  // ---- Start cooldown ----
+  const startCooldown = (seconds = 60) => {
+    setResendCooldown(seconds);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current);
+          cooldownRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  /**
+   * Determine post-verification destination.
+   */
+  const getPostVerifyRoute = () => {
+    return '/welcome';
+  };
+
+  // ---- Check verification ----
   const handleCheckVerification = async () => {
     setErrorMessage('');
     setSuccessMessage('');
-    if (!auth.currentUser) return;
+    setIsChecking(true);
 
     try {
-      setIsLoading(true);
-      // Reload user profile to fetch fresh emailVerified status
-      await auth.currentUser.reload();
-      const updatedUser = auth.currentUser;
-      
+      const updatedUser = await refreshUser();
+
       if (updatedUser.emailVerified) {
-        setSuccessMessage('Email verified successfully!');
-        // Sync local storage for name display
-        localStorage.setItem('neurolearn_user', JSON.stringify({
-          name: updatedUser.displayName || 'Learner',
-          email: updatedUser.email,
-          loggedIn: true
-        }));
+        setSuccessMessage('Email verified successfully! Redirecting...');
         setTimeout(() => {
-          navigate('/goal-setup');
-        }, 1000);
+          navigate(getPostVerifyRoute());
+        }, 1200);
       } else {
-        setErrorMessage('Your email is not verified yet. Please check your inbox.');
+        setErrorMessage('Your email is not verified yet. Please open the verification link sent to your inbox.');
       }
     } catch (err) {
-      console.error(err);
-      setErrorMessage(err.message || 'Error reloading user profile.');
+      setErrorMessage(err.message || 'Error checking verification status.');
     } finally {
-      setIsLoading(false);
+      setIsChecking(false);
     }
   };
 
+  // ---- Resend verification ----
   const handleResendVerification = async () => {
     setErrorMessage('');
     setSuccessMessage('');
-    if (!auth.currentUser) return;
+
+    if (resendCooldown > 0) return;
+
+    setIsChecking(true);
 
     try {
-      setIsLoading(true);
-      await sendEmailVerification(auth.currentUser);
+      await resendVerification();
       setSuccessMessage('Verification email resent! Please check your inbox.');
+      startCooldown(60);
     } catch (err) {
-      console.error(err);
       setErrorMessage(err.message || 'Error resending verification email.');
     } finally {
-      setIsLoading(false);
+      setIsChecking(false);
     }
   };
 
-  const handleLogout = async () => {
+  // ---- Use another account ----
+  const handleUseAnotherAccount = async () => {
     try {
-      await signOut(auth);
-      localStorage.removeItem('neurolearn_user');
+      await logout();
       navigate('/login');
     } catch (err) {
-      console.error(err);
+      console.error('[VerifyEmailPage] Error during logout:', err);
     }
   };
 
-  if (!user) return null;
+  // Don't render until auth state is resolved
+  if (loading || !user) return null;
 
   return (
     <div className="goal-setup-wrapper animate-fadeIn">
@@ -115,33 +149,43 @@ const VerifyEmailPage = () => {
           </div>
 
           <div className="button-container" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <button 
-              type="button" 
-              onClick={handleCheckVerification} 
+            <button
+              type="button"
+              onClick={handleCheckVerification}
               className="submit-button"
-              disabled={isLoading}
+              disabled={isChecking}
             >
-              I HAVE VERIFIED MY EMAIL
+              {isChecking ? (
+                <span className="btn-loading-content">
+                  <span className="btn-spinner"></span>
+                  CHECKING...
+                </span>
+              ) : (
+                'I HAVE VERIFIED MY EMAIL'
+              )}
             </button>
 
-            <button 
-              type="button" 
-              onClick={handleResendVerification} 
+            <button
+              type="button"
+              onClick={handleResendVerification}
               className="submit-button"
               style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', color: '#818cf8' }}
-              disabled={isLoading}
+              disabled={isChecking || resendCooldown > 0}
             >
-              RESEND VERIFICATION EMAIL
+              {resendCooldown > 0
+                ? `RESEND AVAILABLE IN ${resendCooldown}s`
+                : 'RESEND VERIFICATION EMAIL'
+              }
             </button>
 
-            <button 
-              type="button" 
-              onClick={handleLogout} 
+            <button
+              type="button"
+              onClick={handleUseAnotherAccount}
               className="submit-button"
               style={{ background: 'transparent', border: '1px solid rgba(248, 113, 113, 0.3)', color: '#f87171' }}
-              disabled={isLoading}
+              disabled={isChecking}
             >
-              LOGOUT
+              USE ANOTHER ACCOUNT
             </button>
           </div>
         </div>

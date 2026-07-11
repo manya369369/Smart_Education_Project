@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/DashboardPage.css';
 import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, formatDashboardTime, getTimeTrackingData } from '../utils/sessionHelpers';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
 
 // Animated counter component for numbers
 const AnimatedCounter = ({ value, duration = 1200, suffix = "" }) => {
@@ -384,7 +386,12 @@ const DashboardPage = () => {
     return () => { delete window.resetNeurolearnSession; };
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error('[Dashboard] Firebase signOut error:', e);
+    }
     localStorage.removeItem('neurolearn_user');
     navigate('/login');
   };
