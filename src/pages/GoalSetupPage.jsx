@@ -1,9 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/GoalSetupPage.css';
+import { formatExamDate } from '../utils/sessionHelpers';
 
 const GoalSetupPage = () => {
   const navigate = useNavigate();
+
+  const getLocalDateString = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const todayStr = getLocalDateString(new Date());
+  const maxDate = new Date();
+  maxDate.setFullYear(maxDate.getFullYear() + 20);
+  const maxStr = getLocalDateString(maxDate);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('neurolearn_goal_data');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        console.log("Raw saved exam date:", parsed?.examDate);
+        console.log("Formatted exam date:", formatExamDate(parsed?.examDate));
+      }
+    } catch (e) {}
+  }, []);
 
   // Try to load any existing progress from localStorage
   const [formData, setFormData] = useState(() => {
@@ -66,6 +90,50 @@ const GoalSetupPage = () => {
     // Check if any required field is empty
     if (!name.trim() || !examGoal || !examDate || !studyTime || !studentType || !classOrSemester) {
       setErrorMessage('Please complete all required fields before continuing.');
+      return;
+    }
+
+    // Validate examDate
+    const dateMatch = examDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!dateMatch) {
+      setErrorMessage('Please select a valid future exam date.');
+      return;
+    }
+
+    const [, year, month, day] = dateMatch;
+    const numericYear = Number(year);
+    const numericMonth = Number(month);
+    const numericDay = Number(day);
+
+    if (
+      numericMonth < 1 || numericMonth > 12 ||
+      numericDay < 1 || numericDay > 31
+    ) {
+      setErrorMessage('Please select a valid future exam date.');
+      return;
+    }
+
+    const inputDate = new Date(numericYear, numericMonth - 1, numericDay);
+    if (
+      inputDate.getFullYear() !== numericYear ||
+      inputDate.getMonth() !== numericMonth - 1 ||
+      inputDate.getDate() !== numericDay
+    ) {
+      setErrorMessage('Please select a valid future exam date.');
+      return;
+    }
+
+    const currentYear = new Date().getFullYear();
+    if (numericYear < currentYear || numericYear > currentYear + 20) {
+      setErrorMessage('Please select a valid future exam date.');
+      return;
+    }
+
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+
+    if (inputDate < todayMidnight) {
+      setErrorMessage('Please select a valid future exam date.');
       return;
     }
 
@@ -276,6 +344,9 @@ const GoalSetupPage = () => {
               value={formData.examDate}
               onChange={handleInputChange}
               className="form-input"
+              min={todayStr}
+              max={maxStr}
+              required
             />
           </div>
 

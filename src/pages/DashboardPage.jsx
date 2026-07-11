@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/DashboardPage.css';
-import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, formatDashboardTime, getTimeTrackingData } from '../utils/sessionHelpers';
+import { buildTopicSessionKey, calcTopicProgress, getCompletedTopicCount, getCompletedTopics, formatStudyTime, initFreshTopicSession, getSubjectProgress, resolveSessionKey, createRoadmapKey, resolveClassAndSemester, formatDashboardTime, getTimeTrackingData, formatExamDate } from '../utils/sessionHelpers';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -234,7 +234,21 @@ const DashboardPage = () => {
   } catch (e) { }
   const studentName = userName || goal?.name || 'Learner';
   const examGoal = goal?.goal || goal?.examGoal || 'General Study';
-  const examDate = goal?.examDate || '';
+
+  const goalData = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('neurolearn_goal_data');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
+  const examDate = goalData?.examDate || '';
+
+  // Temporary development logs
+  console.log("Raw saved exam date:", goalData?.examDate);
+  console.log("Formatted exam date:", formatExamDate(goalData?.examDate));
 
   // BUG 2 FIX: Merge subjects from goal AND active journey
   const selectedSubjects = useMemo(() => {
@@ -682,13 +696,7 @@ const DashboardPage = () => {
 
   // Format Date for UI display
   const formattedExamDate = useMemo(() => {
-    if (!examDate) return 'Not Scheduled';
-    try {
-      const options = { year: 'numeric', month: 'long', day: 'numeric' };
-      return new Date(examDate).toLocaleDateString(undefined, options);
-    } catch (e) {
-      return examDate;
-    }
+    return formatExamDate(examDate);
   }, [examDate]);
 
   // Generate dynamic AI Insights

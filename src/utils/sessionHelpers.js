@@ -738,3 +738,45 @@ export const getApiUrl = (path) => {
   const apiBase = import.meta.env.VITE_API_URL || (isLocal ? '' : 'https://smart-education-project.onrender.com');
   return `${apiBase}${path}`;
 };
+
+export const formatExamDate = (value) => {
+  if (!value || typeof value !== "string") {
+    return "Not set";
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return "Invalid date — please update your exam date.";
+  }
+
+  const [, year, month, day] = match;
+
+  const numericYear = Number(year);
+  const numericMonth = Number(month);
+  const numericDay = Number(day);
+
+  if (
+    numericYear < new Date().getFullYear() ||
+    numericYear > new Date().getFullYear() + 20 ||
+    numericMonth < 1 ||
+    numericMonth > 12 ||
+    numericDay < 1 ||
+    numericDay > 31
+  ) {
+    return "Invalid date — please update your exam date.";
+  }
+
+  const date = new Date(
+    numericYear,
+    numericMonth - 1,
+    numericDay
+  );
+
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+};
+
